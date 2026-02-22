@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Portal · Búsqueda por RUT normalizado</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Buscar en Sell por <span class="mono">RUT_normalizado</span></h1>
+      <p class="muted">
+        La búsqueda se hace <b>solo</b> usando el <span class="mono">RUT_normalizado</span> (normaliza y valida DV).
+      </p>
+
+      <form id="form">
+        <label>
+          RUT
+          <input id="rut" placeholder="Ej: 12.345.678-k" autocomplete="off" />
+        </label>
+
+        <label>
+          Pipeline ID (opcional, para validar duplicado de deals)
+          <input id="pipelineId" placeholder="Ej: 1" inputmode="numeric" />
+        </label>
+
+        <button type="submit">Buscar</button>
+      </form>
+
+      <section id="status" class="status"></section>
+      <pre id="out" class="out"></pre>
+
+      <footer class="muted small">
+        /health · /api/search-rut
+      </footer>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

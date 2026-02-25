@@ -1,3 +1,18 @@
+async function loadOwners() {
+  const res = await fetch('/api/owners');
+  const data = await res.json();
+  const select = document.getElementById('ownerSelect');
+  if (!select) return;
+  select.innerHTML = '<option value="">Seleccionar Dueño</option>';
+  (data.owners || []).forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.id;
+    opt.textContent = o.name;
+    select.appendChild(opt);
+  });
+}
+document.addEventListener('DOMContentLoaded', loadOwners);
+
 
 function escapeHtml(s) {
   return String(s ?? "")

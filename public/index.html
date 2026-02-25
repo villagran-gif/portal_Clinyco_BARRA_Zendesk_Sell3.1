@@ -137,6 +137,11 @@
           <label>
             Pipeline ID (obligatorio)
             <select id="dealPipelineId"></select>
+          <div id="dealPipelineHelp" class="muted small"></div>
+          <div class="muted small"><button id="toggleManualPipeline" type="button" class="secondary">Ingresar Pipeline ID manual</button></div>
+          <div id="manualPipelineWrap" style="display:none;margin-top:8px;">
+            <input id="manualPipelineId" placeholder="Pipeline ID (manual) ej: 1290779" inputmode="numeric" />
+          </div>
           </label>
           <div class="row span2">
             <button id="btnDealPreview" type="button" class="secondary">Vista previa (dry_run)</button>

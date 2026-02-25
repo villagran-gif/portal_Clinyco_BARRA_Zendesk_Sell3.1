@@ -188,24 +188,23 @@ function calcAgeFromDobDDMMYYYY(s) {
 app.get('/api/pipelines', async (_req, res) => {
   try {
     const items = await getPipelines();
-    // Only return active ones (if property exists)
-    const pipelines = (items || []).map(p => ({
-      id: p.id,
-      name: p.name,
-      disabled: p.disabled === true
-    })).filter(p => !p.disabled);
-    return out(200, { ok: true, pipelines });
+    const pipelines = (items || [])
+      .map(p => ({ id: p.id, name: p.name, disabled: p.disabled === true }))
+      .filter(p => !p.disabled);
+
+    return res.status(200).json({ ok: true, pipelines });
   } catch (err) {
     console.error('pipelines error', err);
 
+    // Fallback hardcoded list (when token/endpoint fails)
     const pipelines = [
-      { id: 1290779, name: "Pipeline Cirugía Bariátricas", disabled: false },
+      { id: 290779, name: "Pipeline Cirugía Bariátricas", disabled: false },
       { id: 4823817, name: "Pipeline Balones", disabled: false },
       { id: 4959507, name: "Pipeline Cirugía Plastica", disabled: false },
       { id: 5049979, name: "Pipeline Cirugía General", disabled: false },
     ];
 
-    return out(200, {
+    return res.status(200).json({
       ok: true,
       pipelines,
       fallback: true,
@@ -213,6 +212,7 @@ app.get('/api/pipelines', async (_req, res) => {
     });
   }
 });
+
 
 app.post('/api/search-rut', async (req, res) => {
   // IMPORTANT: Always respond with the same JSON shape.
@@ -734,6 +734,8 @@ app.post('/api/create-deal', async (req, res) => {
     const comuna = canonicalComuna(comunaInput);
 
     if (!Number.isFinite(contactId) || contactId <= 0) return out(400, 'MISSING_CONTACT_ID', 'Falta contact_id para asociar el Deal.');
+    const ownerId = Number(body.owner_id || body.ownerId);
+    if (!Number.isFinite(ownerId) || ownerId <= 0) return out(400, 'MISSING_OWNER_ID', 'Debes seleccionar un Dueño para el Deal.');
     if (!rutInput) return out(400, 'MISSING_RUT', 'Debes ingresar un RUN/RUT.');
     if (!aseguradoraRaw) return out(400, 'MISSING_ASEGURADORA', 'Falta Aseguradora/Previsión.');
 
@@ -863,7 +865,7 @@ app.post('/api/create-deal', async (req, res) => {
       }
     }
 
-    const payload = { data: { name: dealName, contact_id: contactId, custom_fields, ...(stageId ? { stage_id: stageId } : {}) } };
+    const payload = { data: { owner_id: ownerId,  name: dealName, contact_id: contactId, custom_fields, ...(stageId ? { stage_id: stageId } : {}) } };
     if (debug) detalle_tecnico.payload = payload;
 
     if (dryRun) {
@@ -871,28 +873,6 @@ app.post('/api/create-deal', async (req, res) => {
     }
 
     try {
-
-      // --- DRY RUN (vista previa) ---
-      if (dryRun) {
-        const preview = {
-          contact_id: contactId,
-          pipeline_id: pipelineId,
-          pipeline_name: pipelineName || null,
-          stage_id: stageId,
-          name: dealName,
-          currency: currency || null,
-          value: value || null,
-          rut_normalizado,
-          custom_fields: dealCustomFields
-        };
-
-        return out(200, {
-          ok: true,
-          message: "Vista previa de Deal (dry_run).",
-          preview
-        });
-      }
-
       const created = await createDeal(payload);
       return out(201, null, 'Deal creado.', {
         deal: {
@@ -946,4 +926,38 @@ app.post('/api/create-deal', async (req, res) => {
 
 
 const port = process.env.PORT || 3000;
+app.get('/api/owners', async (_req, res) => {
+  try {
+    const response = await fetch('https://api.getbase.com/v2/users?status=active&confirmed=true&per_page=100&sort_by=name', {
+      headers: {
+        'Authorization': `Bearer ${process.env.SELL_ACCESS_TOKEN}`,
+        'Accept': 'application/json'
+      }
+    });
+    const data = await response.json();
+    const owners = (data.items || []).map(u => ({
+      id: u.data.id,
+      name: u.data.name,
+      email: u.data.email
+    }));
+    return res.status(200).json({ ok: true, owners });
+  } catch (err) {
+    console.error('owners error', err);
+    const fallback = [
+      { id: 8348214, name: "Allison Contreras" },
+      { id: 8380563, name: "Camila Alcayaga" },
+      { id: 8380557, name: "Carolin Cornejo" },
+      { id: 9499426, name: "Danitza Olivera" },
+      { id: 2129414, name: "Dr. Villagran" },
+      { id: 9460679, name: "Gabriela Heck" },
+      { id: 8348233, name: "Giselle Santander" },
+      { id: 9460685, name: "Maria Paz Plonka Rosales" },
+      { id: 9522577, name: "Nelson Aros" }
+    ];
+    return res.status(200).json({ ok: true, owners: fallback, fallback: true });
+  }
+});
+
+
 app.listen(port, () => console.log(`Portal listo en :${port}`));
+

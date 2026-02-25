@@ -144,6 +144,93 @@
   <select id="dealOwnerId"></select>
   <div id="dealOwnerHelp" class="muted small"></div>
 </label>
+<div class="row span2"><hr style="border:none;border-top:1px solid #eee;margin:10px 0;"></div>
+
+<label>
+  SUCURSAL (obligatorio)
+  <select id="dealSucursal">
+    <option value="">Selecciona sucursal...</option>
+    <option value="Santiago">Santiago</option>
+    <option value="Antofagasta">Antofagasta</option>
+    <option value="Calama">Calama</option>
+  </select>
+</label>
+
+<label>
+  Peso (kg) (obligatorio)
+  <input id="dealPeso" placeholder="Ej: 70.0" inputmode="decimal" />
+  <div class="muted small">1 decimal, usa punto. Ej: 70.5</div>
+</label>
+
+<label>
+  Estatura (m) (obligatorio)
+  <input id="dealEstatura" placeholder="Ej: 1.75" inputmode="decimal" />
+  <div class="muted small">metros, usa punto. Ej: 1.75</div>
+</label>
+
+<label>
+  Interés
+  <input id="dealInteres" placeholder="Texto libre" />
+</label>
+
+<label>
+  URL-MEDINET (opcional)
+  <input id="dealUrlMedinet" placeholder="https://..." />
+</label>
+
+<label>
+  Cirugías Previas (opcional)
+  <input id="dealCirugiasPrevias" placeholder="Texto libre" />
+</label>
+
+<label>
+  CIRUJANO BARIÁTRICO
+  <select id="dealCirujanoBariatrico">
+    <option value="">(opcional)</option>
+  </select>
+</label>
+
+<label>
+  CIRUJANO PLASTICO
+  <select id="dealCirujanoPlastico">
+    <option value="">(opcional)</option>
+  </select>
+</label>
+
+<label>
+  CIRUJANO DE BALON
+  <select id="dealCirujanoBalon">
+    <option value="">(opcional)</option>
+  </select>
+</label>
+
+<label>
+  Validacion PAD (string)
+  <input id="dealValidacionPad" placeholder="Texto" />
+</label>
+
+<label>
+  Numero familia paciente (string)
+  <input id="dealNumeroFamilia" placeholder="Texto" />
+</label>
+
+<label>
+  Colaborador1
+  <input id="dealColab1" placeholder="Texto" />
+</label>
+<label>
+  Colaborador2
+  <input id="dealColab2" placeholder="Texto" />
+</label>
+<label>
+  Colaborador3
+  <input id="dealColab3" placeholder="Texto" />
+</label>
+
+<div class="row span2">
+  <div class="muted small">Sugerencia: usa <b>Vista previa (dry_run)</b> para ver IMC/Edad/WhatsApp antes de crear.</div>
+</div>
+
 
           <div class="muted small"><button id="toggleManualPipeline" type="button" class="secondary">Ingresar Pipeline ID manual</button></div>
           <div id="manualPipelineWrap" style="display:none;margin-top:8px;">

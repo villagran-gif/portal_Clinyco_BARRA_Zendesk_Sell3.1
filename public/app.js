@@ -1160,6 +1160,22 @@ if (!ownerId || !Number.isFinite(ownerId)) {
   body.pipeline_id = pipelineId;
   body.owner_id = ownerId;
 
+  // Medical deal fields
+  body.sucursal = (document.getElementById('dealSucursal')?.value || '').trim();
+  body.peso = (document.getElementById('dealPeso')?.value || '').trim();
+  body.estatura = (document.getElementById('dealEstatura')?.value || '').trim();
+  body.interes = (document.getElementById('dealInteres')?.value || '').trim();
+  body.url_medinet = (document.getElementById('dealUrlMedinet')?.value || '').trim();
+  body.cirugias_previas = (document.getElementById('dealCirugiasPrevias')?.value || '').trim();
+  body.cirujano_bariatrico = (document.getElementById('dealCirujanoBariatrico')?.value || '').trim();
+  body.cirujano_plastico = (document.getElementById('dealCirujanoPlastico')?.value || '').trim();
+  body.cirujano_balon = (document.getElementById('dealCirujanoBalon')?.value || '').trim();
+  body.validacion_pad = (document.getElementById('dealValidacionPad')?.value || '').trim();
+  body.numero_familia_paciente = (document.getElementById('dealNumeroFamilia')?.value || '').trim();
+  body.colaborador1 = (document.getElementById('dealColab1')?.value || '').trim();
+  body.colaborador2 = (document.getElementById('dealColab2')?.value || '').trim();
+  body.colaborador3 = (document.getElementById('dealColab3')?.value || '').trim();
+
   const debug = (typeof techMode !== 'undefined' && techMode.checked) ? '&debug=1' : '';
   const url = dryRun ? `/api/create-deal?dry_run=1${debug}` : `/api/create-deal${debug}`;
 
@@ -1285,4 +1301,28 @@ async function loadOwnersForDealForm() {
 }
 
 document.addEventListener('DOMContentLoaded', loadOwnersForDealForm);
+
+
+
+async function loadDealListChoices(fieldName, selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = `<option value="">Cargando...</option>`;
+  try {
+    const res = await fetch(`/api/deal-list-choices?field=${encodeURIComponent(fieldName)}`);
+    const json = await res.json();
+    if (!res.ok || !json.ok) throw new Error(json.message || json.error || 'Error cargando');
+    const choices = json.choices || [];
+    sel.innerHTML = `<option value="">(opcional)</option>` + choices.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+  } catch (e) {
+    sel.innerHTML = `<option value="">(opcional)</option>`;
+    console.error(e);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadDealListChoices('CIRUJANO BARIÁTRICO', 'dealCirujanoBariatrico');
+  loadDealListChoices('CIRUJANO PLASTICO', 'dealCirujanoPlastico');
+  loadDealListChoices('CIRUJANO DE BALON', 'dealCirujanoBalon');
+});
 

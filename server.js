@@ -734,6 +734,8 @@ app.post('/api/create-deal', async (req, res) => {
     const comuna = canonicalComuna(comunaInput);
 
     if (!Number.isFinite(contactId) || contactId <= 0) return out(400, 'MISSING_CONTACT_ID', 'Falta contact_id para asociar el Deal.');
+    const ownerId = Number(body.owner_id || body.ownerId);
+    if (!Number.isFinite(ownerId) || ownerId <= 0) return out(400, 'MISSING_OWNER_ID', 'Debes seleccionar un Dueño para el Deal.');
     if (!rutInput) return out(400, 'MISSING_RUT', 'Debes ingresar un RUN/RUT.');
     if (!aseguradoraRaw) return out(400, 'MISSING_ASEGURADORA', 'Falta Aseguradora/Previsión.');
 
@@ -863,7 +865,7 @@ app.post('/api/create-deal', async (req, res) => {
       }
     }
 
-    const payload = { data: { name: dealName, contact_id: contactId, custom_fields, ...(stageId ? { stage_id: stageId } : {}) } };
+    const payload = { data: { owner_id: ownerId,  name: dealName, contact_id: contactId, custom_fields, ...(stageId ? { stage_id: stageId } : {}) } };
     if (debug) detalle_tecnico.payload = payload;
 
     if (dryRun) {
@@ -924,5 +926,38 @@ app.post('/api/create-deal', async (req, res) => {
 
 
 const port = process.env.PORT || 3000;
+app.get('/api/owners', async (_req, res) => {
+  try {
+    const response = await fetch('https://api.getbase.com/v2/users?status=active&confirmed=true&per_page=100&sort_by=name', {
+      headers: {
+        'Authorization': `Bearer ${process.env.SELL_ACCESS_TOKEN}`,
+        'Accept': 'application/json'
+      }
+    });
+    const data = await response.json();
+    const owners = (data.items || []).map(u => ({
+      id: u.data.id,
+      name: u.data.name,
+      email: u.data.email
+    }));
+    return res.status(200).json({ ok: true, owners });
+  } catch (err) {
+    console.error('owners error', err);
+    const fallback = [
+      { id: 8348214, name: "Allison Contreras" },
+      { id: 8380563, name: "Camila Alcayaga" },
+      { id: 8380557, name: "Carolin Cornejo" },
+      { id: 9499426, name: "Danitza Olivera" },
+      { id: 2129414, name: "Dr. Villagran" },
+      { id: 9460679, name: "Gabriela Heck" },
+      { id: 8348233, name: "Giselle Santander" },
+      { id: 9460685, name: "Maria Paz Plonka Rosales" },
+      { id: 9522577, name: "Nelson Aros" }
+    ];
+    return res.status(200).json({ ok: true, owners: fallback, fallback: true });
+  }
+});
+
+
 app.listen(port, () => console.log(`Portal listo en :${port}`));
 

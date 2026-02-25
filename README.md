@@ -1,51 +1,78 @@
-# Portal (Render) · Búsqueda solo por RUT_normalizado
+# clinyco_sell_tools
 
-Portal mínimo (Node + Express) pensado para desplegarse en **Render.com**.
+Herramientas CLI (bash) para depurar y validar integración con **Zendesk Sell API**.
 
-## Qué hace
+Incluye fixes clave del proyecto:
 
-- Recibe un RUT, lo **normaliza** y **valida DV**.
-- Busca **solo** por el campo custom **RUT_normalizado** (contactos y deals) usando **Sell Search API v3**.
-- Reglas:
-  - **No pueden existir 2 contactos con el mismo RUT_normalizado** → responde **409**.
-  - **No pueden existir 2 deals en el mismo pipeline con el mismo RUT_normalizado** → si envías `pipelineId`, responde **409**.
+- Header obligatorio `User-Agent` en todas las requests.
+- Dominio correcto: `https://api.getbase.com`
+- Search API v3: `projection` sin `null` y con objetos `{ "name": "..." }`
+- Búsqueda anti-duplicados por `RUT_normalizado` usando `custom_fields.<ID>` (por defecto: **2759433**)
+- Manejo de errores HTTP (headers + body guardados en `/tmp/`)
 
-## Endpoints
+## Requisitos
 
-- `GET /health` → `ok`
-- `POST /api/search-rut` → JSON
-  - body: `{ "rut": "12.345.678-k", "pipelineId": 1 }`
+- bash
+- curl
+- jq
+- sed, awk
 
-## Variables de entorno (Render)
-
-Obligatoria:
-
-- `SELL_ACCESS_TOKEN` (Bearer token)
-
-Opcionales:
-
-- `CONTACT_RUT_NORMALIZED_FIELD` (por defecto: `RUT_normalizado`)
-- `DEAL_RUT_NORMALIZED_FIELD` (por defecto: `RUT_normalizado`)
-- `SELL_DESKTOP_BASE_URL` (por defecto: `https://clinyco.zendesk.com/sales`)
-- `SELL_MOBILE_CONTACT_BASE_URL` (por defecto: `https://app.futuresimple.com/crm`)
-- `SELL_MOBILE_DEAL_BASE_URL` (por defecto: `https://app.futuresimple.com/sales`)
-
-> Los custom fields se resuelven por nombre usando `/v3/{resource}/custom_fields`. También puedes pasar directamente el `search_api_id` (ej: `custom_fields.contact:2540090` o `custom_fields.2759433`) o el ID numérico.
-
-## Deploy en Render
-
-1. Sube este repo a GitHub.
-2. Render → **New** → **Web Service** → conecta el repo.
-3. Build Command: `npm install`
-4. Start Command: `npm start`
-5. Agrega variables de entorno (al menos `SELL_ACCESS_TOKEN`).
-
-Render setea `PORT` automáticamente. El servidor escucha `process.env.PORT`.
-
-## Desarrollo local
+## Configuración rápida
 
 ```bash
-npm install
-SELL_ACCESS_TOKEN=... npm start
-# abrir http://localhost:3000
+export SELL_ACCESS_TOKEN="TU_TOKEN"
+export SELL_USER_AGENT="clinyco-formularios/1.0"   # opcional, default ya definido
+export SELL_BASE_URL="https://api.getbase.com"      # opcional
 ```
+
+### Opcional: restringir duplicados a stages “abiertos”
+
+```bash
+export OPEN_STAGE_IDS="10693252,10693253,10693255"
+```
+
+## Uso
+
+### 1) Listar custom fields (deal o contact)
+
+```bash
+./list_custom_fields.sh "$SELL_ACCESS_TOKEN" deal
+./list_custom_fields.sh "$SELL_ACCESS_TOKEN" contact
+```
+
+Salida (TSV):
+
+```
+<ID>   <Nombre>   <Tipo>   <Nº de opciones (si aplica)>
+```
+
+### 2) Buscar deals por RUT_normalizado (anti-duplicados)
+
+Por defecto busca en `custom_fields.2759433` (RUT_normalizado).
+
+```bash
+./search_deals.sh "$SELL_ACCESS_TOKEN" "6.469.664-6"
+```
+
+Salida (TSV):
+
+```
+<deal_id> <name> <stage_id> <pipeline_id> <contact_id> <rut_normalizado>
+```
+
+## Archivos temporales
+
+Cada request guarda headers y body en:
+
+- `/tmp/sell_headers_<ts>.txt`
+- `/tmp/sell_body_<ts>.json`
+
+Si hay error, el script imprime los primeros 200 lines del body para depuración.
+
+## Seguridad
+
+No incluyas tokens dentro de scripts. Usa variables de entorno o argumentos.
+
+## Licencia
+
+MIT

@@ -1,18 +1,3 @@
-async function loadOwners() {
-  const res = await fetch('/api/owners');
-  const data = await res.json();
-  const select = document.getElementById('ownerSelect');
-  if (!select) return;
-  select.innerHTML = '<option value="">Seleccionar Dueño</option>';
-  (data.owners || []).forEach(o => {
-    const opt = document.createElement('option');
-    opt.value = o.id;
-    opt.textContent = o.name;
-    select.appendChild(opt);
-  });
-}
-document.addEventListener('DOMContentLoaded', loadOwners);
-
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -1161,10 +1146,35 @@ async function callDeal(dryRun) {
     return;
   }
 
+
+const ownerEl = document.getElementById('dealOwnerId');
+const ownerId = ownerEl && ownerEl.value ? Number(ownerEl.value) : null;
+if (!ownerId || !Number.isFinite(ownerId)) {
+  setStatus(dStatus, 'Debes seleccionar un Dueño para el Deal.', 'error');
+  return;
+}
+
   // Tomamos los mismos datos extraídos del IA BOX (RUT, nombres, apellidos, previsión, etc.)
   const body = collectContactData();
   body.contact_id = contactId;
   body.pipeline_id = pipelineId;
+  body.owner_id = ownerId;
+
+  // Medical deal fields
+  body.sucursal = (document.getElementById('dealSucursal')?.value || '').trim();
+  body.peso = (document.getElementById('dealPeso')?.value || '').trim();
+  body.estatura = (document.getElementById('dealEstatura')?.value || '').trim();
+  body.interes = (document.getElementById('dealInteres')?.value || '').trim();
+  body.url_medinet = (document.getElementById('dealUrlMedinet')?.value || '').trim();
+  body.cirugias_previas = (document.getElementById('dealCirugiasPrevias')?.value || '').trim();
+  body.cirujano_bariatrico = (document.getElementById('dealCirujanoBariatrico')?.value || '').trim();
+  body.cirujano_plastico = (document.getElementById('dealCirujanoPlastico')?.value || '').trim();
+  body.cirujano_balon = (document.getElementById('dealCirujanoBalon')?.value || '').trim();
+  body.validacion_pad = (document.getElementById('dealValidacionPad')?.value || '').trim();
+  body.numero_familia_paciente = (document.getElementById('dealNumeroFamilia')?.value || '').trim();
+  body.colaborador1 = (document.getElementById('dealColab1')?.value || '').trim();
+  body.colaborador2 = (document.getElementById('dealColab2')?.value || '').trim();
+  body.colaborador3 = (document.getElementById('dealColab3')?.value || '').trim();
 
   const debug = (typeof techMode !== 'undefined' && techMode.checked) ? '&debug=1' : '';
   const url = dryRun ? `/api/create-deal?dry_run=1${debug}` : `/api/create-deal${debug}`;
@@ -1257,3 +1267,62 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+
+// -------------------------
+// Owners selector (Dueño del Deal)
+// -------------------------
+async function loadOwnersForDealForm() {
+  const sel = document.getElementById('dealOwnerId');
+  const help = document.getElementById('dealOwnerHelp');
+  if (!sel) return;
+
+  sel.innerHTML = `<option value="">Cargando dueños...</option>`;
+  try {
+    const res = await fetch('/api/owners');
+    const json = await res.json();
+
+    if (!res.ok || !json.ok) throw new Error(json.error || 'Error cargando dueños');
+
+    const owners = json.owners || [];
+    window.__ownersById = {};
+    owners.forEach(o => { window.__ownersById[String(o.id)] = o.name; });
+
+    sel.innerHTML = `<option value="">Selecciona dueño...</option>` + owners
+      .map(o => `<option value="${o.id}">${escapeHtml(o.name)} (${o.id})</option>`)
+      .join('');
+
+    if (help) help.textContent = json.fallback ? 'Dueños cargados por fallback.' : '';
+  } catch (err) {
+    sel.innerHTML = `<option value="">No se pudieron cargar dueños</option>`;
+    if (help) help.textContent = err.message || String(err);
+    console.error(err);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadOwnersForDealForm);
+
+
+
+async function loadDealListChoices(fieldName, selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = `<option value="">Cargando...</option>`;
+  try {
+    const res = await fetch(`/api/deal-list-choices?field=${encodeURIComponent(fieldName)}`);
+    const json = await res.json();
+    if (!res.ok || !json.ok) throw new Error(json.message || json.error || 'Error cargando');
+    const choices = json.choices || [];
+    sel.innerHTML = `<option value="">(opcional)</option>` + choices.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+  } catch (e) {
+    sel.innerHTML = `<option value="">(opcional)</option>`;
+    console.error(e);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadDealListChoices('CIRUJANO BARIÁTRICO', 'dealCirujanoBariatrico');
+  loadDealListChoices('CIRUJANO PLASTICO', 'dealCirujanoPlastico');
+  loadDealListChoices('CIRUJANO DE BALON', 'dealCirujanoBalon');
+});
+

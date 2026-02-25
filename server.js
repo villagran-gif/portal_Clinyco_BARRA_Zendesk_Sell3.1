@@ -164,6 +164,48 @@ function cleanValue(v) {
     .trim();
 }
 
+function parseNumDot(v) {
+  const s = String(v ?? '').trim().replace(',', '.');
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function calcImc(pesoKg, alturaM) {
+  if (!Number.isFinite(pesoKg) || !Number.isFinite(alturaM) || alturaM <= 0) return null;
+  const imc = pesoKg / (alturaM * alturaM);
+  return Number.isFinite(imc) ? imc : null;
+}
+
+function classifyImc(imc) {
+  if (!Number.isFinite(imc)) return null;
+  if (imc < 18.5) return "Bajo peso";
+  if (imc < 25.0) return "Normal";
+  if (imc < 30.0) return "Sobrepeso";
+  return "Obesidad";
+}
+
+function calcEdadFromDDMMYYYY(s) {
+  if (!/^\d{2}\/\d{2}\/\d{4}$/.test(String(s||''))) return null;
+  const [dd, mm, yyyy] = String(s).split('/').map(x => parseInt(x, 10));
+  const dob = new Date(Date.UTC(yyyy, mm - 1, dd));
+  const now = new Date();
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+  const m = now.getUTCMonth() - dob.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < dob.getUTCDate())) age--;
+  return Number.isFinite(age) ? age : null;
+}
+
+function isoDateToday() {
+  return new Date().toISOString().slice(0,10);
+}
+
+function waLinkFromPhone(phone) {
+  const digits = String(phone||'').replace(/\D/g,'');
+  if (!digits) return null;
+  return `https://wa.me/${digits}`;
+}
+
 function isValidDobDDMMYYYY(s) {
   if (!/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return false;
   const [dd, mm, yyyy] = s.split('/').map((x) => parseInt(x, 10));
@@ -213,6 +255,83 @@ app.get('/api/pipelines', async (_req, res) => {
   }
 });
 
+app.get('/api/owners', async (_req, res) => {
+  try {
+    const token = String(process.env.SELL_ACCESS_TOKEN || '').trim();
+    if (!token) {
+      return res.status(500).json({ ok: false, error: 'MISSING_SELL_ACCESS_TOKEN' });
+    }
+
+    const r = await fetch('https://api.getbase.com/v2/users?status=active&confirmed=true&per_page=100&sort_by=name', {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    const text = await r.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (_e) {}
+
+    if (!r.ok) {
+      return res.status(500).json({
+        ok: false,
+        error: 'SELL_USERS_FETCH_FAILED',
+        status: r.status,
+        details: data || text,
+      });
+    }
+
+    const owners = (data.items || [])
+      .map(it => it.data)
+      .filter(u => u && u.status === 'active' && u.confirmed === true)
+      .map(u => ({ id: u.id, name: u.name, email: u.email || null }));
+
+    return res.status(200).json({ ok: true, owners });
+  } catch (err) {
+    console.error('owners error', err);
+
+    const fallback = [
+      { id: 8348214, name: "Allison Contreras", email: "allison@clinyco.cl" },
+      { id: 8380563, name: "Camila Alcayaga", email: null },
+      { id: 8380557, name: "Carolin Cornejo", email: null },
+      { id: 9499426, name: "Danitza Olivera", email: null },
+      { id: 2129414, name: "Dr. Villagran", email: null },
+      { id: 9460679, name: "Gabriela Heck", email: null },
+      { id: 8348233, name: "Giselle Santander", email: null },
+      { id: 9460685, name: "Maria Paz Plonka Rosales", email: null },
+      { id: 9522577, name: "Nelson Aros", email: null },
+    ];
+
+    return res.status(200).json({ ok: true, owners: fallback, fallback: true });
+  }
+});
+
+
+
+app.get('/api/deal-list-choices', async (req, res) => {
+  try {
+    const field = String(req.query.field || '').trim();
+    if (!field) return res.status(400).json({ ok:false, error:'MISSING_FIELD', message:'field requerido' });
+
+    const cat = await getDealCatalog();
+    // match by normalized name
+    const targetNorm = normKey(field);
+    const f = cat.fields.find(x => normKey(x.name) === targetNorm);
+    if (!f) return res.status(404).json({ ok:false, error:'FIELD_NOT_FOUND', field });
+
+    if (f.type !== 'list' || !Array.isArray(f.choices)) {
+      return res.status(200).json({ ok:true, field: f.name, type: f.type, choices: [] });
+    }
+
+    const choices = f.choices.map(ch => ({ id: ch.id, name: ch.name }));
+    return res.status(200).json({ ok:true, field: f.name, type: f.type, choices });
+  } catch (err) {
+    console.error('deal-list-choices error', err);
+    return res.status(500).json({ ok:false, error:'ERROR', message: err.message || String(err) });
+  }
+});
 
 app.post('/api/search-rut', async (req, res) => {
   // IMPORTANT: Always respond with the same JSON shape.
@@ -718,6 +837,7 @@ app.post('/api/create-deal', async (req, res) => {
     const body = req.body || {};
 
     const contactId = Number(body.contact_id || body.contactId || body.contact?.id);
+    const ownerId = Number(body.owner_id || body.ownerId || body.owner?.id);
     const pipelineIdRaw = body.pipeline_id ?? body.pipelineId ?? body.pipeline_id_checked ?? body.pipelineIdChecked ?? null;
     const pipelineId = (pipelineIdRaw === null || pipelineIdRaw === undefined || pipelineIdRaw === '') ? null : Number(pipelineIdRaw);
     if (pipelineIdRaw !== null && pipelineIdRaw !== undefined && pipelineIdRaw !== '' && !Number.isFinite(pipelineId)) {
@@ -733,8 +853,23 @@ app.post('/api/create-deal', async (req, res) => {
     const comunaInput = cleanValue(body.comuna || body['Comuna']);
     const comuna = canonicalComuna(comunaInput);
 
+const estaturaRaw = cleanValue(body.estatura || body['Estatura']);
+const pesoRaw = cleanValue(body.peso || body['Peso']);
+const interes = cleanValue(body.interes || body['Interés'] || body['Interes']);
+const urlMedinet = cleanValue(body.url_medinet || body.urlMedinet || body['URL-MEDINET']);
+const sucursal = cleanValue(body.sucursal || body['SUCURSAL'] || body['Sucursal']);
+const cirugiasPrevias = cleanValue(body.cirugias_previas || body['Cirugías Previas'] || body['Cirugias Previas']);
+const colaborador1 = cleanValue(body.colaborador1 || body['Colaborador1']);
+const colaborador2 = cleanValue(body.colaborador2 || body['Colaborador2']);
+const colaborador3 = cleanValue(body.colaborador3 || body['Colaborador3']);
+const validacionPad = cleanValue(body.validacion_pad || body['Validacion PAD']);
+const numFamiliaPaciente = cleanValue(body.numero_familia_paciente || body['Numero familia paciente']);
+
+const cirujanoBariatrico = cleanValue(body.cirujano_bariatrico || body['CIRUJANO BARIÁTRICO'] || body['CIRUJANO BARIATRICO']);
+const cirujanoPlastico = cleanValue(body.cirujano_plastico || body['CIRUJANO PLASTICO']);
+const cirujanoBalon = cleanValue(body.cirujano_balon || body['CIRUJANO DE BALON']);
+
     if (!Number.isFinite(contactId) || contactId <= 0) return out(400, 'MISSING_CONTACT_ID', 'Falta contact_id para asociar el Deal.');
-    const ownerId = Number(body.owner_id || body.ownerId);
     if (!Number.isFinite(ownerId) || ownerId <= 0) return out(400, 'MISSING_OWNER_ID', 'Debes seleccionar un Dueño para el Deal.');
     if (!rutInput) return out(400, 'MISSING_RUT', 'Debes ingresar un RUN/RUT.');
     if (!aseguradoraRaw) return out(400, 'MISSING_ASEGURADORA', 'Falta Aseguradora/Previsión.');
@@ -762,6 +897,31 @@ app.post('/api/create-deal', async (req, res) => {
       normKey('Ciudad'),
     ]);
 
+const DF_RUT_O_ID = findDealFieldNameByNorm(dcat, [normKey('RUT o ID')]);
+const DF_CORREO = findDealFieldNameByNorm(dcat, [normKey('Correo electrónico'), normKey('Correo electronico')]);
+const DF_TELEFONO = findDealFieldNameByNorm(dcat, [normKey('Teléfono'), normKey('Telefono')]);
+const DF_FECHA_NAC = findDealFieldNameByNorm(dcat, [normKey('Fecha Nacimiento'), normKey('Fecha Nacimiento#1')]);
+const DF_CIUDAD = findDealFieldNameByNorm(dcat, [normKey('Ciudad'), normKey('Comuna')]);
+const DF_ESTATURA = findDealFieldNameByNorm(dcat, [normKey('Estatura')]);
+const DF_PESO = findDealFieldNameByNorm(dcat, [normKey('Peso')]);
+const DF_IMC = findDealFieldNameByNorm(dcat, [normKey('IMC'), normKey('Imc')]);
+const DF_EDAD = findDealFieldNameByNorm(dcat, [normKey('EDAD'), normKey('Edad')]);
+const DF_FECHA_INGRESA = findDealFieldNameByNorm(dcat, [normKey('Fecha Ingresa Formulario')]);
+const DF_URL_MEDINET = findDealFieldNameByNorm(dcat, [normKey('URL-MEDINET')]);
+const DF_SUCURSAL = findDealFieldNameByNorm(dcat, [normKey('SUCURSAL'), normKey('Sucursal')]);
+const DF_INTERES = findDealFieldNameByNorm(dcat, [normKey('Interés'), normKey('Interes'), normKey('INTERES')]);
+const DF_CIRUGIAS_PREVIAS = findDealFieldNameByNorm(dcat, [normKey('Cirugías Previas'), normKey('Cirugias Previas')]);
+const DF_WHATSAPP = findDealFieldNameByNorm(dcat, [normKey('WhatsApp_Contactar_LINK'), normKey('WhatsApp Contactar LINK')]);
+const DF_COLAB1 = findDealFieldNameByNorm(dcat, [normKey('Colaborador1')]);
+const DF_COLAB2 = findDealFieldNameByNorm(dcat, [normKey('Colaborador2')]);
+const DF_COLAB3 = findDealFieldNameByNorm(dcat, [normKey('Colaborador3')]);
+const DF_VALIDACION_PAD = findDealFieldNameByNorm(dcat, [normKey('Validacion PAD')]);
+const DF_NUM_FAMILIA = findDealFieldNameByNorm(dcat, [normKey('Numero familia paciente')]);
+const DF_CIR_BARI = findDealFieldNameByNorm(dcat, [normKey('CIRUJANO BARIÁTRICO'), normKey('CIRUJANO BARIATRICO')]);
+const DF_CIR_PLAST = findDealFieldNameByNorm(dcat, [normKey('CIRUJANO PLASTICO')]);
+const DF_CIR_BALON = findDealFieldNameByNorm(dcat, [normKey('CIRUJANO DE BALON')]);
+
+
     // Match previsión choice
     const prevKey = normKey(aseguradoraRaw);
     const dChoices = dcat.listChoicesByFieldId.get(2761582) || new Map();
@@ -775,12 +935,59 @@ app.post('/api/create-deal', async (req, res) => {
     const custom_fields = {};
     custom_fields[DF_RUT_NORM] = rutNoDashLower;
     custom_fields[DF_PREV_LIST] = dChoice.name;
+
+
+// Mirrors / additional info for Medinet & operations
+if (DF_RUT_O_ID) custom_fields[DF_RUT_O_ID] = rutHuman;
+if (DF_CORREO && body.email) custom_fields[DF_CORREO] = cleanValue(body.email);
+if (DF_TELEFONO) custom_fields[DF_TELEFONO] = cleanValue(body.telefono1 || body.telefono || body['Teléfono'] || body['Telefono'] || body.phone1 || '');
+if (DF_FECHA_NAC && body.fecha_nacimiento) custom_fields[DF_FECHA_NAC] = cleanValue(body.fecha_nacimiento);
+if (DF_CIUDAD && comuna) custom_fields[DF_CIUDAD] = comuna;
+
+if (DF_ESTATURA && estaturaRaw) custom_fields[DF_ESTATURA] = estaturaRaw;
+if (DF_PESO && pesoRaw) custom_fields[DF_PESO] = pesoRaw;
+if (DF_IMC && imcStr) custom_fields[DF_IMC] = imcStr;
+if (DF_EDAD && edadStr) custom_fields[DF_EDAD] = edadStr;
+if (DF_FECHA_INGRESA) custom_fields[DF_FECHA_INGRESA] = fechaIngresaFormulario;
+
+if (DF_URL_MEDINET && urlMedinet) custom_fields[DF_URL_MEDINET] = urlMedinet;
+if (DF_INTERES && interes) custom_fields[DF_INTERES] = interes;
+if (DF_CIRUGIAS_PREVIAS && cirugiasPrevias) custom_fields[DF_CIRUGIAS_PREVIAS] = cirugiasPrevias;
+
+if (DF_WHATSAPP && whatsappLink) custom_fields[DF_WHATSAPP] = whatsappLink;
+
+if (DF_COLAB1 && colaborador1) custom_fields[DF_COLAB1] = colaborador1;
+if (DF_COLAB2 && colaborador2) custom_fields[DF_COLAB2] = colaborador2;
+if (DF_COLAB3 && colaborador3) custom_fields[DF_COLAB3] = colaborador3;
+
+if (DF_VALIDACION_PAD && validacionPad) custom_fields[DF_VALIDACION_PAD] = validacionPad;
+if (DF_NUM_FAMILIA && numFamiliaPaciente) custom_fields[DF_NUM_FAMILIA] = numFamiliaPaciente;
+
+// Surgeon fields are lists in Sell; store by name (Sell accepts name, and we retry {id,name} on 422 for Previsión already)
+if (DF_CIR_BARI && cirujanoBariatrico) custom_fields[DF_CIR_BARI] = cirujanoBariatrico;
+if (DF_CIR_PLAST && cirujanoPlastico) custom_fields[DF_CIR_PLAST] = cirujanoPlastico;
+if (DF_CIR_BALON && cirujanoBalon) custom_fields[DF_CIR_BALON] = cirujanoBalon;
+
+// Sucursal: fixed list; stored as string
+if (DF_SUCURSAL && sucursal) custom_fields[DF_SUCURSAL] = sucursal;
+
     if (DF_MODALIDAD && modalidadRaw) custom_fields[DF_MODALIDAD] = modalidadRaw;
     if (DF_COMUNA && comuna) custom_fields[DF_COMUNA] = comuna;
 
     const dealName = cleanValue(body.deal_name) || `BOX - ${[nombres, apellidos].filter(Boolean).join(' ')}`.trim() || `BOX - ${rutHuman}`;
 
-    const vista_previa = {
+    
+const pesoNum = parseNumDot(pesoRaw);
+const estaturaNum = parseNumDot(estaturaRaw);
+const imcCalc = calcImc(pesoNum, estaturaNum);
+const imcStr = (imcCalc === null) ? null : imcCalc.toFixed(2);
+const imcClasif = (imcCalc === null) ? null : classifyImc(imcCalc);
+const edadCalc = calcEdadFromDDMMYYYY(cleanValue(body.fecha_nacimiento || body.fechaNacimiento || body['Fecha Nacimiento'] || body['Fecha Nacimiento']));
+const edadStr = (edadCalc === null) ? null : String(edadCalc);
+const whatsappLink = waLinkFromPhone(cleanValue(body.telefono1 || body.telefono_1 || body['Teléfono 1'] || body['Telefono 1'] || body.phone1 || body.telefono || body['Teléfono']));
+const fechaIngresaFormulario = isoDateToday();
+
+const vista_previa = {
       deal_name: dealName,
       contact_id: contactId,
       rut_normalizado: rutNoDashLower,
@@ -789,6 +996,26 @@ app.post('/api/create-deal', async (req, res) => {
       modalidad: modalidadRaw || null,
       comuna: comuna || ERROR_COMUNA,
       custom_fields,
+      estatura: estaturaRaw || null,
+      peso: pesoRaw || null,
+      edad: edadStr,
+      imc: imcStr,
+      imc_clasificacion: imcClasif,
+      sucursal: sucursal || null,
+      interes: interes || null,
+      url_medinet: urlMedinet || null,
+      cirugias_previas: cirugiasPrevias || null,
+      whatsapp_link: whatsappLink,
+      fecha_ingresa_formulario: fechaIngresaFormulario,
+      colaborador1: colaborador1 || null,
+      colaborador2: colaborador2 || null,
+      colaborador3: colaborador3 || null,
+      validacion_pad: validacionPad || null,
+      numero_familia_paciente: numFamiliaPaciente || null,
+      cirujano_bariatrico: cirujanoBariatrico || null,
+      cirujano_plastico: cirujanoPlastico || null,
+      cirujano_balon: cirujanoBalon || null,
+
     };
 
     const detalle_tecnico = debug ? { payload: null } : undefined;
@@ -865,7 +1092,27 @@ app.post('/api/create-deal', async (req, res) => {
       }
     }
 
-    const payload = { data: { owner_id: ownerId,  name: dealName, contact_id: contactId, custom_fields, ...(stageId ? { stage_id: stageId } : {}) } };
+    const payload = { data: { name: dealName, contact_id: contactId, owner_id: ownerId, custom_fields,
+      estatura: estaturaRaw || null,
+      peso: pesoRaw || null,
+      edad: edadStr,
+      imc: imcStr,
+      imc_clasificacion: imcClasif,
+      sucursal: sucursal || null,
+      interes: interes || null,
+      url_medinet: urlMedinet || null,
+      cirugias_previas: cirugiasPrevias || null,
+      whatsapp_link: whatsappLink,
+      fecha_ingresa_formulario: fechaIngresaFormulario,
+      colaborador1: colaborador1 || null,
+      colaborador2: colaborador2 || null,
+      colaborador3: colaborador3 || null,
+      validacion_pad: validacionPad || null,
+      numero_familia_paciente: numFamiliaPaciente || null,
+      cirujano_bariatrico: cirujanoBariatrico || null,
+      cirujano_plastico: cirujanoPlastico || null,
+      cirujano_balon: cirujanoBalon || null,
+ ...(stageId ? { stage_id: stageId } : {}) } };
     if (debug) detalle_tecnico.payload = payload;
 
     if (dryRun) {
@@ -926,38 +1173,5 @@ app.post('/api/create-deal', async (req, res) => {
 
 
 const port = process.env.PORT || 3000;
-app.get('/api/owners', async (_req, res) => {
-  try {
-    const response = await fetch('https://api.getbase.com/v2/users?status=active&confirmed=true&per_page=100&sort_by=name', {
-      headers: {
-        'Authorization': `Bearer ${process.env.SELL_ACCESS_TOKEN}`,
-        'Accept': 'application/json'
-      }
-    });
-    const data = await response.json();
-    const owners = (data.items || []).map(u => ({
-      id: u.data.id,
-      name: u.data.name,
-      email: u.data.email
-    }));
-    return res.status(200).json({ ok: true, owners });
-  } catch (err) {
-    console.error('owners error', err);
-    const fallback = [
-      { id: 8348214, name: "Allison Contreras" },
-      { id: 8380563, name: "Camila Alcayaga" },
-      { id: 8380557, name: "Carolin Cornejo" },
-      { id: 9499426, name: "Danitza Olivera" },
-      { id: 2129414, name: "Dr. Villagran" },
-      { id: 9460679, name: "Gabriela Heck" },
-      { id: 8348233, name: "Giselle Santander" },
-      { id: 9460685, name: "Maria Paz Plonka Rosales" },
-      { id: 9522577, name: "Nelson Aros" }
-    ];
-    return res.status(200).json({ ok: true, owners: fallback, fallback: true });
-  }
-});
-
-
 app.listen(port, () => console.log(`Portal listo en :${port}`));
 

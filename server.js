@@ -213,6 +213,60 @@ app.get('/api/pipelines', async (_req, res) => {
   }
 });
 
+app.get('/api/owners', async (_req, res) => {
+  try {
+    const token = String(process.env.SELL_ACCESS_TOKEN || '').trim();
+    if (!token) {
+      return res.status(500).json({ ok: false, error: 'MISSING_SELL_ACCESS_TOKEN' });
+    }
+
+    const r = await fetch('https://api.getbase.com/v2/users?status=active&confirmed=true&per_page=100&sort_by=name', {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    const text = await r.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (_e) {}
+
+    if (!r.ok) {
+      return res.status(500).json({
+        ok: false,
+        error: 'SELL_USERS_FETCH_FAILED',
+        status: r.status,
+        details: data || text,
+      });
+    }
+
+    const owners = (data.items || [])
+      .map(it => it.data)
+      .filter(u => u && u.status === 'active' && u.confirmed === true)
+      .map(u => ({ id: u.id, name: u.name, email: u.email || null }));
+
+    return res.status(200).json({ ok: true, owners });
+  } catch (err) {
+    console.error('owners error', err);
+
+    const fallback = [
+      { id: 8348214, name: "Allison Contreras", email: "allison@clinyco.cl" },
+      { id: 8380563, name: "Camila Alcayaga", email: null },
+      { id: 8380557, name: "Carolin Cornejo", email: null },
+      { id: 9499426, name: "Danitza Olivera", email: null },
+      { id: 2129414, name: "Dr. Villagran", email: null },
+      { id: 9460679, name: "Gabriela Heck", email: null },
+      { id: 8348233, name: "Giselle Santander", email: null },
+      { id: 9460685, name: "Maria Paz Plonka Rosales", email: null },
+      { id: 9522577, name: "Nelson Aros", email: null },
+    ];
+
+    return res.status(200).json({ ok: true, owners: fallback, fallback: true });
+  }
+});
+
+
 
 app.post('/api/search-rut', async (req, res) => {
   // IMPORTANT: Always respond with the same JSON shape.
@@ -718,6 +772,7 @@ app.post('/api/create-deal', async (req, res) => {
     const body = req.body || {};
 
     const contactId = Number(body.contact_id || body.contactId || body.contact?.id);
+    const ownerId = Number(body.owner_id || body.ownerId || body.owner?.id);
     const pipelineIdRaw = body.pipeline_id ?? body.pipelineId ?? body.pipeline_id_checked ?? body.pipelineIdChecked ?? null;
     const pipelineId = (pipelineIdRaw === null || pipelineIdRaw === undefined || pipelineIdRaw === '') ? null : Number(pipelineIdRaw);
     if (pipelineIdRaw !== null && pipelineIdRaw !== undefined && pipelineIdRaw !== '' && !Number.isFinite(pipelineId)) {
@@ -734,7 +789,6 @@ app.post('/api/create-deal', async (req, res) => {
     const comuna = canonicalComuna(comunaInput);
 
     if (!Number.isFinite(contactId) || contactId <= 0) return out(400, 'MISSING_CONTACT_ID', 'Falta contact_id para asociar el Deal.');
-    const ownerId = Number(body.owner_id || body.ownerId);
     if (!Number.isFinite(ownerId) || ownerId <= 0) return out(400, 'MISSING_OWNER_ID', 'Debes seleccionar un Dueño para el Deal.');
     if (!rutInput) return out(400, 'MISSING_RUT', 'Debes ingresar un RUN/RUT.');
     if (!aseguradoraRaw) return out(400, 'MISSING_ASEGURADORA', 'Falta Aseguradora/Previsión.');
@@ -865,7 +919,7 @@ app.post('/api/create-deal', async (req, res) => {
       }
     }
 
-    const payload = { data: { owner_id: ownerId,  name: dealName, contact_id: contactId, custom_fields, ...(stageId ? { stage_id: stageId } : {}) } };
+    const payload = { data: { name: dealName, contact_id: contactId, owner_id: ownerId, custom_fields, ...(stageId ? { stage_id: stageId } : {}) } };
     if (debug) detalle_tecnico.payload = payload;
 
     if (dryRun) {
@@ -926,38 +980,5 @@ app.post('/api/create-deal', async (req, res) => {
 
 
 const port = process.env.PORT || 3000;
-app.get('/api/owners', async (_req, res) => {
-  try {
-    const response = await fetch('https://api.getbase.com/v2/users?status=active&confirmed=true&per_page=100&sort_by=name', {
-      headers: {
-        'Authorization': `Bearer ${process.env.SELL_ACCESS_TOKEN}`,
-        'Accept': 'application/json'
-      }
-    });
-    const data = await response.json();
-    const owners = (data.items || []).map(u => ({
-      id: u.data.id,
-      name: u.data.name,
-      email: u.data.email
-    }));
-    return res.status(200).json({ ok: true, owners });
-  } catch (err) {
-    console.error('owners error', err);
-    const fallback = [
-      { id: 8348214, name: "Allison Contreras" },
-      { id: 8380563, name: "Camila Alcayaga" },
-      { id: 8380557, name: "Carolin Cornejo" },
-      { id: 9499426, name: "Danitza Olivera" },
-      { id: 2129414, name: "Dr. Villagran" },
-      { id: 9460679, name: "Gabriela Heck" },
-      { id: 8348233, name: "Giselle Santander" },
-      { id: 9460685, name: "Maria Paz Plonka Rosales" },
-      { id: 9522577, name: "Nelson Aros" }
-    ];
-    return res.status(200).json({ ok: true, owners: fallback, fallback: true });
-  }
-});
-
-
 app.listen(port, () => console.log(`Portal listo en :${port}`));
 

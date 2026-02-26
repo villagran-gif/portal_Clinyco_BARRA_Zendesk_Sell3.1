@@ -923,7 +923,12 @@ const DF_TELEFONO = findDealFieldNameByNorm(dcat, [normKey('Teléfono'), normKey
 const DF_FECHA_NAC = findDealFieldNameByNorm(dcat, [normKey('Fecha Nacimiento'), normKey('Fecha Nacimiento#1')]);
 const DF_CIUDAD = findDealFieldNameByNorm(dcat, [normKey('Ciudad'), normKey('Comuna')]);
 const DF_ESTATURA = findDealFieldNameByNorm(dcat, [normKey('Estatura')]);
+// Peso: legacy number field may truncate decimals; prefer using IDs when available
 const DF_PESO = findDealFieldNameByNorm(dcat, [normKey('Peso')]);
+let DF_PESO_NUM = null; // legacy number (e.g. 1291631)
+let DF_PESO_STR = null; // new string field for exact value (e.g. 2763860)
+try { DF_PESO_NUM = mustFieldNameById(dcat, 1291631); } catch (_e) {}
+try { DF_PESO_STR = mustFieldNameById(dcat, 2763860); } catch (_e) {}
 const DF_IMC = findDealFieldNameByNorm(dcat, [normKey('IMC'), normKey('Imc')]);
 const DF_EDAD = findDealFieldNameByNorm(dcat, [normKey('EDAD'), normKey('Edad')]);
 const DF_FECHA_INGRESA = findDealFieldNameByNorm(dcat, [normKey('Fecha Ingresa Formulario')]);
@@ -983,8 +988,25 @@ if (DF_TELEFONO) custom_fields[DF_TELEFONO] = cleanValue(body.telefono1 || body.
 if (DF_FECHA_NAC && body.fecha_nacimiento) custom_fields[DF_FECHA_NAC] = cleanValue(body.fecha_nacimiento);
 if (DF_CIUDAD && comuna) custom_fields[DF_CIUDAD] = comuna;
 
-if (DF_ESTATURA && estaturaRaw) custom_fields[DF_ESTATURA] = estaturaRaw;
-if (DF_PESO && pesoRaw) custom_fields[DF_PESO] = pesoRaw;
+// Estatura: if the Sell field is numeric/integer and input is in meters, store centimeters to avoid truncation (e.g., 1.75 -> 175).
+if (DF_ESTATURA && estaturaRaw) {
+  const estNum = parseNumDot(estaturaRaw);
+  let estToSave = String(estaturaRaw).replace(',', '.');
+  if (estNum !== null) {
+    // Heuristic: values <= 3 are meters; store as cm integer. Otherwise, assume already cm.
+    estToSave = estNum <= 3 ? String(Math.round(estNum * 100)) : String(Math.round(estNum));
+  }
+  custom_fields[DF_ESTATURA] = estToSave;
+}
+// Peso: keep exact string in the new string field, and an integer in the legacy number field (for filtering/reporting).
+if (pesoRaw) {
+  const pesoStr = String(pesoRaw).replace(',', '.').trim();
+  const pNum = parseNumDot(pesoStr);
+  if (DF_PESO_STR) custom_fields[DF_PESO_STR] = pesoStr;
+  if (DF_PESO_NUM && pNum !== null) custom_fields[DF_PESO_NUM] = Math.round(pNum);
+  // Backward compatibility: if IDs are not available, fall back to the name-matched field.
+  if (!DF_PESO_STR && DF_PESO && pesoStr) custom_fields[DF_PESO] = pesoStr;
+}
 const imcStr = (imcCalc === null) ? null : imcCalc.toFixed(2);
 if (DF_IMC && imcStr != null) custom_fields[DF_IMC] = imcStr;
 if (DF_EDAD && edadStr != null) custom_fields[DF_EDAD] = edadStr;

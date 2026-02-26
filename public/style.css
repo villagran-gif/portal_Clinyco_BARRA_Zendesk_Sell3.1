@@ -67,3 +67,15 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); bor
 .inline-btn{border:1px solid #cbd5e1;background:#fff;color:#0f172a;padding:4px 8px;border-radius:8px;font-size:12px;cursor:pointer;}
 .inline-btn.primary{background:#2563eb;border-color:#2563eb;color:#fff;}
 .inline-btn:hover{filter:brightness(0.98);}
+
+/* --- Theme: Clinyco Blue --- */
+body {
+  background: linear-gradient(180deg, #0b3d91 0%, #0a2f73 60%, #082654 100%);
+}
+.wrap {
+  background: rgba(255,255,255,0.96);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 14px;
+  margin: 24px auto;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.20);
+}

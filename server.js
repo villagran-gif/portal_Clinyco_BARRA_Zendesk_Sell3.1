@@ -853,8 +853,12 @@ app.post('/api/create-deal', async (req, res) => {
     const comunaInput = cleanValue(body.comuna || body['Comuna']);
     const comuna = canonicalComuna(comunaInput);
 
-const estaturaRaw = cleanValue(body.estatura || body['Estatura']);
-const pesoRaw = cleanValue(body.peso || body['Peso']);
+const estaturaRaw = cleanValue(
+  body.estatura_m || body.estaturaM || body.estatura || body['Estatura'] || body['Estatura (m)']
+);
+const pesoRaw = cleanValue(
+  body.peso_kg || body.pesoKg || body.peso || body['Peso'] || body['Peso (kg)']
+);
 const interes = cleanValue(body.interes || body['Interés'] || body['Interes']);
 const urlMedinet = cleanValue(body.url_medinet || body.urlMedinet || body['URL-MEDINET']);
 const sucursal = cleanValue(body.sucursal || body['SUCURSAL'] || body['Sucursal']);
@@ -936,11 +940,27 @@ const DF_CIR_BALON = findDealFieldNameByNorm(dcat, [normKey('CIRUJANO DE BALON')
     custom_fields[DF_RUT_NORM] = rutNoDashLower;
     custom_fields[DF_PREV_LIST] = dChoice.name;
 
+// ---- Derivados (DEBEN existir antes de usarlos) ----
+const pesoNum = parseNumDot(pesoRaw);
+const estaturaNum = parseNumDot(estaturaRaw);
 
-git diff
-git add server.js
-git commit -m "Fix TDZ imcStr in create-deal"
-git push// Mirrors / additional info for Medinet & operations
+const imcCalc = calcImc(pesoNum, estaturaNum);
+
+const imcClasif = (imcCalc === null) ? null : classifyImc(imcCalc);
+
+const edadCalc = calcEdadFromDDMMYYYY(
+  cleanValue(body.fecha_nacimiento || body.fechaNacimiento || body['Fecha Nacimiento'] || body['Fecha de Nacimiento'] || body['Fecha Nacimiento'])
+);
+const edadStr = (edadCalc === null) ? null : String(edadCalc);
+
+const whatsappLink = waLinkFromPhone(
+  cleanValue(body.telefono1 || body.telefono_1 || body['Teléfono 1'] || body['Telefono 1'] || body.phone1 || body.telefono || body['Teléfono'])
+);
+
+const fechaIngresaFormulario = isoDateToday();
+
+
+// Mirrors / additional info for Medinet & operations
 if (DF_RUT_O_ID) custom_fields[DF_RUT_O_ID] = rutHuman;
 if (DF_CORREO && body.email) custom_fields[DF_CORREO] = cleanValue(body.email);
 if (DF_TELEFONO) custom_fields[DF_TELEFONO] = cleanValue(body.telefono1 || body.telefono || body['Teléfono'] || body['Telefono'] || body.phone1 || '');
@@ -951,9 +971,8 @@ if (DF_ESTATURA && estaturaRaw) custom_fields[DF_ESTATURA] = estaturaRaw;
 if (DF_PESO && pesoRaw) custom_fields[DF_PESO] = pesoRaw;
 const imcStr = (imcCalc === null) ? null : imcCalc.toFixed(2);
 if (DF_IMC && imcStr != null) custom_fields[DF_IMC] = imcStr;
-if (DF_EDAD && edadStr) custom_fields[DF_EDAD] = edadStr;
-if (DF_FECHA_INGRESA) custom_fields[DF_FECHA_INGRESA] = fechaIngresaFormulario;
-
+if (DF_EDAD && edadStr != null) custom_fields[DF_EDAD] = edadStr;
+if (DF_FECHA_INGRESA && fechaIngresaFormulario) custom_fields[DF_FECHA_INGRESA] = fechaIngresaFormulario;
 if (DF_URL_MEDINET && urlMedinet) custom_fields[DF_URL_MEDINET] = urlMedinet;
 if (DF_INTERES && interes) custom_fields[DF_INTERES] = interes;
 if (DF_CIRUGIAS_PREVIAS && cirugiasPrevias) custom_fields[DF_CIRUGIAS_PREVIAS] = cirugiasPrevias;
@@ -979,16 +998,6 @@ if (DF_SUCURSAL && sucursal) custom_fields[DF_SUCURSAL] = sucursal;
     if (DF_COMUNA && comuna) custom_fields[DF_COMUNA] = comuna;
 
     const dealName = cleanValue(body.deal_name) || `BOX - ${[nombres, apellidos].filter(Boolean).join(' ')}`.trim() || `BOX - ${rutHuman}`;
-
-    
-const pesoNum = parseNumDot(pesoRaw);
-const estaturaNum = parseNumDot(estaturaRaw);
-const imcCalc = calcImc(pesoNum, estaturaNum);
-const imcClasif = (imcCalc === null) ? null : classifyImc(imcCalc);
-const edadCalc = calcEdadFromDDMMYYYY(cleanValue(body.fecha_nacimiento || body.fechaNacimiento || body['Fecha Nacimiento'] || body['Fecha Nacimiento']));
-const edadStr = (edadCalc === null) ? null : String(edadCalc);
-const whatsappLink = waLinkFromPhone(cleanValue(body.telefono1 || body.telefono_1 || body['Teléfono 1'] || body['Telefono 1'] || body.phone1 || body.telefono || body['Teléfono']));
-const fechaIngresaFormulario = isoDateToday();
 
 const vista_previa = {
       deal_name: dealName,

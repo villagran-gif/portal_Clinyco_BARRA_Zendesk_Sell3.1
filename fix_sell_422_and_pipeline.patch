@@ -1,0 +1,72 @@
+diff --git a/server.js b/server.js
+index 9b19ea4..cafe123 100644
+--- a/server.js
++++ b/server.js
+@@ -215,9 +215,23 @@ app.get('/api/pipelines', async (_req, res) => {
+   try {
+-    const items = await getPipelines();
+-    const pipelines = (items || [])
+-      .map(p => ({ id: p.id, name: p.name, disabled: p.disabled === true }))
+-      .filter(p => !p.disabled);
++    // getPipelines() may be missing/undefined depending on lib/sell exports.
++    // If missing, fall back to getPipelinesByIds() using known IDs.
++    let items = null;
++    if (typeof getPipelines === 'function') {
++      items = await getPipelines();
++    } else if (typeof getPipelinesByIds === 'function') {
++      const knownIds = [1290779, 4823817, 4959507, 5049979];
++      items = await getPipelinesByIds(knownIds);
++    }
++
++    const pipelines = (items || [])
++      .map(p => ({ id: p.id, name: p.name, disabled: p.disabled === true }))
++      .filter(p => !p.disabled);
+
+     return res.status(200).json({ ok: true, pipelines });
+   } catch (err) {
+     console.error('pipelines error', err);
+
+     // Fallback hardcoded list (when token/endpoint fails)
+     const pipelines = [
+-      { id: 290779, name: "Pipeline Cirugía Bariátricas", disabled: false },
++      // IMPORTANT: Bariátrica canonical pipeline ID is 1290779 (NOT 290779)
++      { id: 1290779, name: "Pipeline Cirugía Bariátricas", disabled: false },
+       { id: 4823817, name: "Pipeline Balones", disabled: false },
+       { id: 4959507, name: "Pipeline Cirugía Plastica", disabled: false },
+       { id: 5049979, name: "Pipeline Cirugía General", disabled: false },
+     ];
+
+@@ -1118,30 +1132,20 @@ app.post('/api/create-deal', async (req, res) => {
+-    const payload = { data: { name: dealName, contact_id: contactId, owner_id: ownerId, custom_fields,
+-      estatura: estaturaRaw || null,
+-      peso: pesoRaw || null,
+-      edad: edadStr,
+-      imc: imcStr,
+-      imc_clasificacion: imcClasif,
+-      sucursal: sucursal || null,
+-      interes: interes || null,
+-      url_medinet: urlMedinet || null,
+-      cirugias_previas: cirugiasPrevias || null,
+-      whatsapp_link: whatsappLink,
+-      fecha_ingresa_formulario: fechaIngresaFormulario,
+-      colaborador1: colaborador1 || null,
+-      colaborador2: colaborador2 || null,
+-      colaborador3: colaborador3 || null,
+-      validacion_pad: validacionPad || null,
+-      numero_familia_paciente: numFamiliaPaciente || null,
+-      cirujano_bariatrico: cirujanoBariatrico || null,
+-      cirujano_plastico: cirujanoPlastico || null,
+-      cirujano_balon: cirujanoBalon || null,
+- ...(stageId ? { stage_id: stageId } : {}) } };
++    // IMPORTANT: Zendesk Sell Deal resource only accepts known top-level attributes.
++    // All extra business fields must be stored in custom_fields (already built above).
++    const payload = {
++      data: {
++        name: dealName,
++        contact_id: contactId,
++        owner_id: ownerId,
++        custom_fields,
++        ...(stageId ? { stage_id: stageId } : {}),
++      }
++    };
+     if (debug) detalle_tecnico.payload = payload;

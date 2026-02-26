@@ -1,7 +1,15 @@
 
 async function resolvePipelineName(pipelineId) {
   try {
-    const pipelines = await getPipelines();
+    let pipelines = null;
+    if (typeof getPipelines === 'function') {
+      pipelines = await getPipelines();
+    } else if (typeof getPipelinesByIds === 'function') {
+      // Fallback to known pipelines if getPipelines is not available
+      const knownIds = [1290779, 4823817, 4959507, 5049979, Number(pipelineId)];
+      const ids = Array.from(new Set(knownIds.filter((n) => Number.isFinite(n) && n > 0)));
+      pipelines = await getPipelinesByIds(ids);
+    }
     const p = (pipelines || []).find(x => Number(x.id) === Number(pipelineId));
     return p ? p.name : null;
   } catch (_e) {
@@ -229,7 +237,14 @@ function calcAgeFromDobDDMMYYYY(s) {
 
 app.get('/api/pipelines', async (_req, res) => {
   try {
-    const items = await getPipelines();
+    let items = null;
+    // getPipelines() exists in newer lib/sell.js; be tolerant if missing.
+    if (typeof getPipelines === 'function') {
+      items = await getPipelines();
+    } else if (typeof getPipelinesByIds === 'function') {
+      const knownIds = [1290779, 4823817, 4959507, 5049979];
+      items = await getPipelinesByIds(knownIds);
+    }
     const pipelines = (items || [])
       .map(p => ({ id: p.id, name: p.name, disabled: p.disabled === true }))
       .filter(p => !p.disabled);
@@ -240,7 +255,8 @@ app.get('/api/pipelines', async (_req, res) => {
 
     // Fallback hardcoded list (when token/endpoint fails)
     const pipelines = [
-      { id: 290779, name: "Pipeline Cirugía Bariátricas", disabled: false },
+      // IMPORTANT: Bariátrica canonical pipeline ID is 1290779 (not 290779)
+      { id: 1290779, name: "Pipeline Cirugía Bariátricas", disabled: false },
       { id: 4823817, name: "Pipeline Balones", disabled: false },
       { id: 4959507, name: "Pipeline Cirugía Plastica", disabled: false },
       { id: 5049979, name: "Pipeline Cirugía General", disabled: false },
@@ -1104,7 +1120,18 @@ const vista_previa = {
       }
     }
 
-   
+    // IMPORTANT: Zendesk Sell Deal resource only accepts known top-level attributes.
+    // All business fields must be stored in custom_fields (already built above).
+    const payload = {
+      data: {
+        name: dealName,
+        contact_id: contactId,
+        owner_id: ownerId,
+        custom_fields,
+        ...(stageId ? { stage_id: stageId } : {}),
+      },
+    };
+
     if (debug) detalle_tecnico.payload = payload;
 
     if (dryRun) {

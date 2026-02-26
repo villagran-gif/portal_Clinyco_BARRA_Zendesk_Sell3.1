@@ -937,7 +937,10 @@ const DF_CIR_BALON = findDealFieldNameByNorm(dcat, [normKey('CIRUJANO DE BALON')
     custom_fields[DF_PREV_LIST] = dChoice.name;
 
 
-// Mirrors / additional info for Medinet & operations
+git diff
+git add server.js
+git commit -m "Fix TDZ imcStr in create-deal"
+git push// Mirrors / additional info for Medinet & operations
 if (DF_RUT_O_ID) custom_fields[DF_RUT_O_ID] = rutHuman;
 if (DF_CORREO && body.email) custom_fields[DF_CORREO] = cleanValue(body.email);
 if (DF_TELEFONO) custom_fields[DF_TELEFONO] = cleanValue(body.telefono1 || body.telefono || body['Teléfono'] || body['Telefono'] || body.phone1 || '');
@@ -946,7 +949,8 @@ if (DF_CIUDAD && comuna) custom_fields[DF_CIUDAD] = comuna;
 
 if (DF_ESTATURA && estaturaRaw) custom_fields[DF_ESTATURA] = estaturaRaw;
 if (DF_PESO && pesoRaw) custom_fields[DF_PESO] = pesoRaw;
-if (DF_IMC && imcStr) custom_fields[DF_IMC] = imcStr;
+const imcStr = (imcCalc === null) ? null : imcCalc.toFixed(2);
+if (DF_IMC && imcStr != null) custom_fields[DF_IMC] = imcStr;
 if (DF_EDAD && edadStr) custom_fields[DF_EDAD] = edadStr;
 if (DF_FECHA_INGRESA) custom_fields[DF_FECHA_INGRESA] = fechaIngresaFormulario;
 
@@ -980,7 +984,6 @@ if (DF_SUCURSAL && sucursal) custom_fields[DF_SUCURSAL] = sucursal;
 const pesoNum = parseNumDot(pesoRaw);
 const estaturaNum = parseNumDot(estaturaRaw);
 const imcCalc = calcImc(pesoNum, estaturaNum);
-const imcStr = (imcCalc === null) ? null : imcCalc.toFixed(2);
 const imcClasif = (imcCalc === null) ? null : classifyImc(imcCalc);
 const edadCalc = calcEdadFromDDMMYYYY(cleanValue(body.fecha_nacimiento || body.fechaNacimiento || body['Fecha Nacimiento'] || body['Fecha Nacimiento']));
 const edadStr = (edadCalc === null) ? null : String(edadCalc);

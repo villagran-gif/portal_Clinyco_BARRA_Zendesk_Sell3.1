@@ -1104,27 +1104,7 @@ const vista_previa = {
       }
     }
 
-    const payload = { data: { name: dealName, contact_id: contactId, owner_id: ownerId, custom_fields,
-      estatura: estaturaRaw || null,
-      peso: pesoRaw || null,
-      edad: edadStr,
-      imc: imcStr,
-      imc_clasificacion: imcClasif,
-      sucursal: sucursal || null,
-      interes: interes || null,
-      url_medinet: urlMedinet || null,
-      cirugias_previas: cirugiasPrevias || null,
-      whatsapp_link: whatsappLink,
-      fecha_ingresa_formulario: fechaIngresaFormulario,
-      colaborador1: colaborador1 || null,
-      colaborador2: colaborador2 || null,
-      colaborador3: colaborador3 || null,
-      validacion_pad: validacionPad || null,
-      numero_familia_paciente: numFamiliaPaciente || null,
-      cirujano_bariatrico: cirujanoBariatrico || null,
-      cirujano_plastico: cirujanoPlastico || null,
-      cirujano_balon: cirujanoBalon || null,
- ...(stageId ? { stage_id: stageId } : {}) } };
+   
     if (debug) detalle_tecnico.payload = payload;
 
     if (dryRun) {

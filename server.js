@@ -18,6 +18,7 @@ const {
   searchContactsByCustomField,
   searchDealsByCustomField,
   getDealsByIds,
+  getContactsByIds,
   getStagesByIds,
   getPipelinesByIds,
   getPipelines,
@@ -26,9 +27,18 @@ const {
   getDealCustomFields,
   createContact,
   createDeal,
+  createNote,
 } = require('./lib/sell');
 
 const { canonicalComuna, ERROR_COMUNA } = require('./lib/comunas');
+
+// Google Drive/Docs (Templates -> PDF)
+const { getClients } = require('./lib/google');
+const {
+  ensurePatientFolderStructure,
+  generateDocAndPdf,
+  driveFolderUrl,
+} = require('./lib/drive_docs');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -558,6 +568,256 @@ app.post('/api/search-rut', async (req, res) => {
           ? err.http_status
           : 500;
     return send(status, err.code || 'ERROR', err.message || String(err));
+  }
+});
+
+
+// -------------------------
+// Docs -> PDF (Google Drive/Docs)
+// -------------------------
+function readTemplatesMap() {
+  const raw = String(process.env.DOC_TEMPLATES_JSON || '').trim();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return {};
+  }
+}
+
+function docsWriteEnabled(dryRun) {
+  if (dryRun) return true;
+  const v1 = String(process.env.ALLOW_DOCS_WRITE || '').toLowerCase() === 'true';
+  const v2 = String(process.env.ALLOW_WRITE || 'false').toLowerCase() === 'true';
+  return v1 || v2;
+}
+
+function safeSpaces(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim();
+}
+
+async function buildPlaceholdersFromDealAndContact(deal, contact) {
+  // Reuse catalog helpers already present in this file
+  const cat = await getContactCatalog();
+  const dcat = await getDealCatalog();
+
+  const FN_RUT_NORM = mustFieldNameById(cat, 6265931); // RUT_normalizado
+  const FN_RUT_HUMAN = mustFieldNameById(cat, 5883525); // RUT o ID (humano)
+  const FN_DOB = mustFieldNameById(cat, 5863844); // Fecha Nacimiento
+  const FN_PREV_LIST = mustFieldNameById(cat, 6373567); // Previsión (list)
+
+  const DF_RUT_NORM = mustFieldNameById(dcat, 2759433); // RUT_normalizado (deal)
+
+  const rutNorm = String(contact?.custom_fields?.[FN_RUT_NORM] || deal?.custom_fields?.[DF_RUT_NORM] || '').trim();
+  const rutHuman = String(contact?.custom_fields?.[FN_RUT_HUMAN] || '').trim();
+  const dob = String(contact?.custom_fields?.[FN_DOB] || '').trim();
+  const prev = String(contact?.custom_fields?.[FN_PREV_LIST] || '').trim();
+
+  const first = String(contact?.first_name || '').trim();
+  const last = String(contact?.last_name || '').trim();
+  const full = safeSpaces(`${first} ${last}`);
+  const email = String(contact?.email || '').trim();
+  const phone1 = String(contact?.phone || '').trim();
+  const phone2 = String(contact?.mobile || '').trim();
+  const address1 = String(contact?.address?.line1 || '').trim();
+  const comuna = String(contact?.address?.city || '').trim();
+
+  // Stage/Pipeline names (best-effort)
+  let stageName = null;
+  let pipelineName = null;
+  try {
+    const st = (await getStagesByIds([deal?.stage_id].filter(Boolean)))[0];
+    stageName = st?.name || null;
+    if (st?.pipeline_id) {
+      pipelineName = await resolvePipelineName(st.pipeline_id);
+    }
+  } catch (_e) {
+    // ignore
+  }
+
+  const placeholders = {
+    // Common
+    RUT: rutHuman || rutNorm,
+    RUT_O_ID: rutHuman || rutNorm,
+    RUT_NORMALIZADO: rutNorm,
+    NOMBRE: first,
+    APELLIDO: last,
+    NOMBRE_COMPLETO: full,
+    FECHA_NAC: dob,
+    EMAIL: email,
+    TELEFONO1: phone1,
+    TELEFONO2: phone2 || phone1,
+    DIRECCION: address1,
+    COMUNA: comuna,
+    PREVISION: prev,
+    FECHA_HOY: isoDateToday(),
+
+    // Deal
+    DEAL_ID: String(deal?.id || ''),
+    DEAL_NAME: String(deal?.name || ''),
+    DEAL_URL: deskDealUrl(deal?.id),
+    CONTACT_ID: String(contact?.id || ''),
+    CONTACT_URL: deskContactUrl(contact?.id),
+    PIPELINE: pipelineName || '',
+    STAGE: stageName || '',
+  };
+
+  return { placeholders, rutNorm, rutHuman, first, last };
+}
+
+app.get('/api/docs/templates', async (_req, res) => {
+  const templates = readTemplatesMap();
+  return res.status(200).json({ ok: true, templates });
+});
+
+app.get('/api/deal-context', async (req, res) => {
+  const dealId = Number(req.query.deal_id);
+  if (!Number.isFinite(dealId) || dealId <= 0) {
+    return res.status(400).json({ ok: false, error: 'INVALID_DEAL_ID', message: 'deal_id inválido' });
+  }
+  try {
+    const deal = (await getDealsByIds([dealId]))[0];
+    if (!deal) return res.status(404).json({ ok: false, error: 'DEAL_NOT_FOUND' });
+
+    const contactId = deal?.contact_id;
+    const contact = contactId ? (await getContactsByIds([contactId]))[0] : null;
+
+    return res.status(200).json({
+      ok: true,
+      deal: {
+        id: deal.id,
+        name: deal.name,
+        desktop_url: deskDealUrl(deal.id),
+        mobile_url: mobileDealUrl(deal.id),
+      },
+      contact: contact ? {
+        id: contact.id,
+        display_name: contact.display_name,
+        desktop_url: deskContactUrl(contact.id),
+        mobile_url: mobileContactUrl(contact.id),
+      } : null,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.code || 'ERROR', message: err.message || String(err) });
+  }
+});
+
+app.post('/api/docs/generate-batch', async (req, res) => {
+  const dryRun = String(req.query.dry_run || '').toLowerCase() === '1' || String(req.query.dry_run || '').toLowerCase() === 'true' || req.body?.dry_run === true;
+
+  if (!docsWriteEnabled(dryRun)) {
+    return res.status(403).json({
+      ok: false,
+      status: 403,
+      error: 'WRITE_DISABLED',
+      message: 'Generación deshabilitada (ALLOW_DOCS_WRITE/ALLOW_WRITE != true).',
+    });
+  }
+
+  const dealId = Number(req.body?.deal_id);
+  if (!Number.isFinite(dealId) || dealId <= 0) {
+    return res.status(400).json({ ok: false, error: 'INVALID_DEAL_ID', message: 'deal_id inválido' });
+  }
+
+  const templates = readTemplatesMap();
+  const allTypes = Object.keys(templates);
+  const asked = Array.isArray(req.body?.doc_types) ? req.body.doc_types.map(String) : [];
+  const defaultTypes = String(process.env.DOC_DEFAULT_TYPES || '').split(',').map(s => s.trim()).filter(Boolean);
+
+  const docTypes = asked.length ? asked : (defaultTypes.length ? defaultTypes : allTypes);
+  if (!docTypes.length) {
+    return res.status(400).json({ ok: false, error: 'NO_DOC_TYPES', message: 'No hay doc_types ni templates configurados (DOC_TEMPLATES_JSON).' });
+  }
+
+  const rootFolderId = String(process.env.GOOGLE_ROOT_FOLDER_ID || process.env.ROOT_FOLDER_ID || '').trim();
+  if (!rootFolderId) {
+    return res.status(500).json({ ok: false, error: 'MISSING_GOOGLE_ROOT_FOLDER_ID', message: 'Falta GOOGLE_ROOT_FOLDER_ID/ROOT_FOLDER_ID' });
+  }
+
+  try {
+    const deal = (await getDealsByIds([dealId]))[0];
+    if (!deal) return res.status(404).json({ ok: false, error: 'DEAL_NOT_FOUND' });
+
+    const contactId = deal?.contact_id;
+    if (!contactId) return res.status(400).json({ ok: false, error: 'DEAL_WITHOUT_CONTACT', message: 'El deal no tiene contact_id asociado.' });
+    const contact = (await getContactsByIds([contactId]))[0];
+    if (!contact) return res.status(404).json({ ok: false, error: 'CONTACT_NOT_FOUND' });
+
+    const { placeholders, rutNorm, rutHuman, first, last } = await buildPlaceholdersFromDealAndContact(deal, contact);
+
+    const baseId = rutHuman || rutNorm || `DEAL-${dealId}`;
+    const patientFolderName = safeSpaces(`${baseId} - ${first} ${last} (${dealId})`);
+
+    const { drive, docs } = getClients();
+    const { patientFolderId, pdfFolderId, docsFolderId } = await ensurePatientFolderStructure({
+      drive,
+      rootFolderId,
+      patientFolderName,
+    });
+
+    const results = [];
+    for (const docType of docTypes) {
+      const templateFileId = templates[docType];
+      if (!templateFileId) {
+        results.push({ doc_type: docType, status: 'error', error: 'No template configured for this doc_type' });
+        continue;
+      }
+
+      if (dryRun) {
+        results.push({
+          doc_type: docType,
+          status: 'dry_run',
+          template_file_id: templateFileId,
+          patient_folder_name: patientFolderName,
+          placeholders_preview: placeholders,
+        });
+        continue;
+      }
+
+      const baseName = safeSpaces(`${docType} - ${baseId} (${dealId})`);
+      try {
+        const gen = await generateDocAndPdf({
+          drive,
+          docs,
+          templateFileId,
+          docsFolderId,
+          pdfFolderId,
+          baseName,
+          placeholders,
+        });
+        results.push({ doc_type: docType, status: 'done', template_file_id: templateFileId, ...gen });
+      } catch (e) {
+        results.push({ doc_type: docType, status: 'error', template_file_id: templateFileId, error: e?.message || String(e) });
+      }
+    }
+
+    // Nota en Sell (best-effort)
+    const pdfLinks = results.filter(r => r.status === 'done' && r.pdf_url).map(r => `- ${r.doc_type}: ${r.pdf_url}`);
+    if (!dryRun && pdfLinks.length) {
+      const noteText = `📄 Documentos generados (portal)\nCarpeta: ${driveFolderUrl(patientFolderId)}\n${pdfLinks.join('\n')}`;
+      try {
+        await createNote({
+          data: {
+            resource_type: 'deal',
+            resource_id: dealId,
+            content: noteText,
+          }
+        });
+      } catch (_e) {
+        // ignore
+      }
+    }
+
+    return res.status(200).json({
+      ok: true,
+      deal_id: dealId,
+      contact_id: contactId,
+      patient_folder_id: patientFolderId,
+      patient_folder_url: driveFolderUrl(patientFolderId),
+      results,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.code || 'ERROR', message: err.message || String(err) });
   }
 });
 

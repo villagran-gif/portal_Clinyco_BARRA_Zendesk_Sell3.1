@@ -708,6 +708,33 @@ const pipelineIdEl = $('pipelineId');
 const statusEl = $('status');
 const outEl = $('out');
 
+// Docs button
+const btnCreateDocs = $('btnCreateDocs');
+const docsDryRun = $('docsDryRun');
+const docsOut = $('docsOut');
+const docsDetails = $('docsDetails');
+const docsPick = $('docsPick');
+
+let __selectedDealId = null;
+
+function setSelectedDeal(id) {
+  __selectedDealId = (id && Number.isFinite(Number(id))) ? Number(id) : null;
+  btnCreateDocs.disabled = !__selectedDealId;
+}
+
+async function loadTemplatesInfo() {
+  try {
+    const r = await fetch('/api/docs/templates');
+    const j = await r.json();
+    const keys = Object.keys(j?.templates || {});
+    docsPick.textContent = keys.length ? `Plantillas configuradas: ${keys.length}` : 'Plantillas no configuradas (DOC_TEMPLATES_JSON)';
+  } catch (_e) {
+    docsPick.textContent = 'Plantillas: error al cargar';
+  }
+}
+
+loadTemplatesInfo();
+
 function setStatus(el, msg, kind = 'info') {
   el.textContent = msg || '';
   el.className = `status ${kind}`;
@@ -721,6 +748,9 @@ $('form').addEventListener('submit', async (e) => {
 
   setStatus(statusEl, 'Buscando...', 'info');
   outEl.textContent = '';
+  docsDetails.hidden = true;
+  docsOut.textContent = '';
+  setSelectedDeal(null);
 
   try {
     const res = await fetch('/api/search-rut', {
@@ -740,12 +770,65 @@ $('form').addEventListener('submit', async (e) => {
 
     outEl.textContent = JSON.stringify(json, null, 2);
 
+    // pick deal for docs
+    const dealId = json?.deal?.id || (Array.isArray(json?.deals) && json.deals[0]?.id);
+    if (res.ok && dealId) {
+      setSelectedDeal(dealId);
+    } else {
+      setSelectedDeal(null);
+    }
+
     if (!res.ok) setStatus(statusEl, json.message || 'Error', 'error');
     else setStatus(statusEl, 'OK', 'ok');
   } catch (err) {
     setStatus(statusEl, err.message || String(err), 'error');
   }
 });
+
+btnCreateDocs?.addEventListener('click', async () => {
+  if (!__selectedDealId) return;
+
+  btnCreateDocs.disabled = true;
+  docsDetails.hidden = false;
+  docsOut.textContent = 'Generando documentos...';
+
+  try {
+    const qs = docsDryRun?.checked ? '?dry_run=1' : '';
+    const res = await fetch(`/api/docs/generate-batch${qs}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deal_id: __selectedDealId }),
+    });
+    const json = await res.json();
+    docsOut.textContent = JSON.stringify(json, null, 2);
+  } catch (e) {
+    docsOut.textContent = `Error: ${e?.message || String(e)}`;
+  } finally {
+    btnCreateDocs.disabled = false;
+  }
+});
+
+// Deep-link from Sell: /?deal_id=123
+(async function initDealFromQuery() {
+  try {
+    const params = new URLSearchParams(location.search);
+    const dealId = Number(params.get('deal_id'));
+    if (!Number.isFinite(dealId) || dealId <= 0) return;
+
+    setStatus(statusEl, `Cargando deal ${dealId}...`, 'info');
+    const res = await fetch(`/api/deal-context?deal_id=${dealId}`);
+    const json = await res.json();
+    outEl.textContent = JSON.stringify(json, null, 2);
+    if (json?.ok && json?.deal?.id) {
+      setSelectedDeal(json.deal.id);
+      setStatus(statusEl, 'OK (deal cargado desde URL)', 'ok');
+    } else {
+      setStatus(statusEl, json?.message || 'Error al cargar deal', 'error');
+    }
+  } catch (_e) {
+    // ignore
+  }
+})();
 
 // -------------------------
 // IA BOX + Create Contact

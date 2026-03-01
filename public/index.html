@@ -15,7 +15,10 @@
           <h1>Portal · Sell</h1>
           <p class="muted">DEV · box-ai-clinyco</p>
         </div>
-        <span class="badge">DEV</span>
+        <div class="topbar-right">
+          <img class="logo" src="/logo.svg" alt="Clinyco" />
+          <span class="badge">DEV</span>
+        </div>
       </header>
 
       <section class="card">
@@ -287,6 +290,45 @@
           <summary>Resultado (JSON)</summary>
           <pre id="out" class="out"></pre>
         </details>
+
+        <div class="row span2" style="margin-top:10px;">
+          <button id="btnCreateDocs" type="button" disabled>CREAR DOCUMENTOS</button>
+          <label class="chk">
+            <input id="docsDryRun" type="checkbox" />
+            <span>Dry-run</span>
+          </label>
+          <span class="muted small">Genera PDFs desde templates en Drive y los guarda en la carpeta del paciente.</span>
+        </div>
+
+        <details class="details" open id="docsTemplatesWrap" style="margin-top:8px;">
+  <summary>Templates disponibles</summary>
+  <div class="row span2" style="margin:8px 0;">
+    <button id="btnReloadTemplates" type="button">Recargar templates</button>
+    <button id="btnSelectAllTemplates" type="button">Seleccionar todos</button>
+    <button id="btnSelectNoneTemplates" type="button">Ninguno</button>
+    <span class="muted small">Se leen automáticamente desde una carpeta de Drive (TEMPLATE_FOLDER_ID).</span>
+  </div>
+<div class="row span2" style="margin:8px 0;">
+  <input id="docsTemplatesSearch" type="text" placeholder="Buscar plantilla..." />
+  <button id="btnSelectFilteredTemplates" type="button">Seleccionar filtradas</button>
+  <button id="btnDeselectFilteredTemplates" type="button">Desmarcar filtradas</button>
+  <span id="docsTemplatesCount" class="muted small"></span>
+</div>
+
+  <div id="docsTemplates" class="templates-list"></div>
+</details>
+
+<section id="docs_status" class="status"></section>
+        <details class="details">
+          <summary>Resultado documentos (JSON)</summary>
+          <pre id="docs_out" class="out"></pre>
+        
+</details>
+<details class="details" open>
+  <summary>Links documentos</summary>
+  <div id="docs_links" class="docs-links"></div>
+</details>
+
 
         <footer class="muted small">/health · /api/search-rut</footer>
       </section>

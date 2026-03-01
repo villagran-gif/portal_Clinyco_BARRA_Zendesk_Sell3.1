@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="44" viewBox="0 0 220 44" fill="none">
+  <defs>
+    <!-- Background -->
+    <linearGradient id="bg" x1="0" y1="0" x2="220" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B2F4A"/>
+      <stop offset="0.55" stop-color="#0E3D62"/>
+      <stop offset="1" stop-color="#0A2A43"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(160 4) rotate(135) scale(140 70)">
+      <stop offset="0" stop-color="#7DD3FC" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#7DD3FC" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Text shadow (3D-ish) -->
+    <filter id="softShadow" x="-20%" y="-50%" width="140%" height="200%">
+      <feDropShadow dx="0" dy="2" stdDeviation="1.6" flood-color="#041726" flood-opacity="0.65"/>
+      <feDropShadow dx="0" dy="0.6" stdDeviation="0.6" flood-color="#0B2F4A" flood-opacity="0.55"/>
+    </filter>
+
+    <!-- Underline shadow -->
+    <filter id="lineShadow" x="-20%" y="-200%" width="140%" height="500%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="0.9" flood-color="#041726" flood-opacity="0.55"/>
+    </filter>
+
+    <linearGradient id="pink" x1="0" y1="0" x2="220" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E11D48"/>
+      <stop offset="0.5" stop-color="#DB2777"/>
+      <stop offset="1" stop-color="#BE185D"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded background with subtle blue edge feel -->
+  <rect x="0" y="0" width="220" height="44" rx="12" fill="url(#bg)"/>
+  <rect x="0" y="0" width="220" height="44" rx="12" fill="url(#shine)"/>
+
+  <!-- "Edge" highlight (very subtle) -->
+  <rect x="0.75" y="0.75" width="218.5" height="42.5" rx="11.25"
+        stroke="#60A5FA" stroke-opacity="0.20"/>
+
+  <!-- Logo text (centered) -->
+  <!-- back layer for a tiny bevel -->
+  <text x="110" y="24" text-anchor="middle"
+        font-family="Inter, system-ui, -apple-system, Segoe UI, Arial"
+        font-size="24" font-weight="800"
+        fill="#CBD5E1" opacity="0.25"
+        transform="translate(0 1)">Clínyco</text>
+
+  <text x="110" y="24" text-anchor="middle"
+        font-family="Inter, system-ui, -apple-system, Segoe UI, Arial"
+        font-size="24" font-weight="800"
+        fill="#F8FAFC" filter="url(#softShadow)">Clínyco</text>
+
+  <!-- Pink underline -->
+  <rect x="40" y="30.5" width="140" height="6" rx="3" fill="url(#pink)" filter="url(#lineShadow)"/>
+</svg>

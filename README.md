@@ -16,11 +16,28 @@ Portal mínimo (Node + Express) pensado para desplegarse en **Render.com**.
 - `POST /api/search-rut` → JSON
   - body: `{ "rut": "12.345.678-k", "pipelineId": 1 }`
 
+Nuevos (Drive/Docs/PDF):
+
+- `POST /api/docs/generate-batch` → genera PDFs desde templates en Drive
+  - body: `{ "deal_id": 123, "doc_types": ["exam_order","recipe"] }`
+  - soporta `?dry_run=1`
+- `GET /api/deal-context?deal_id=123` → trae deal+contact para deep-link (portal?deal_id=123)
+
 ## Variables de entorno (Render)
 
 Obligatoria:
 
 - `SELL_ACCESS_TOKEN` (Bearer token)
+
+Para generación de documentos (Google Drive/Docs):
+
+- `GOOGLE_ROOT_FOLDER_ID` (o `ROOT_FOLDER_ID`) → carpeta raíz (ideal en Shared Drive) donde se crean carpetas de pacientes
+- Credenciales Service Account (una de estas opciones):
+  - `GOOGLE_SERVICE_ACCOUNT_JSON` (recomendado, JSON completo en una sola línea)
+  - **o** `GOOGLE_CLIENT_EMAIL` + `GOOGLE_PRIVATE_KEY`
+- `DOC_TEMPLATES_JSON` → JSON map de `doc_type -> template_file_id`.
+  - Ej: `{"exam_order":"1AAA...","recipe":"1BBB...","inform":"1CCC..."}`
+- `ALLOW_DOCS_WRITE=true` (o reutiliza `ALLOW_WRITE=true`) para permitir generación real (sin esto, solo dry-run)
 
 Opcionales:
 
@@ -49,3 +66,8 @@ npm install
 SELL_ACCESS_TOKEN=... npm start
 # abrir http://localhost:3000
 ```
+
+
+### Templates sin tocar Render
+
+Configura una vez `TEMPLATE_FOLDER_ID` (carpeta Drive con plantillas). Luego, para agregar nuevas plantillas solo las copias a esa carpeta.

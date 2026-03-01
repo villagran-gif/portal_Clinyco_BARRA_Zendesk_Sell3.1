@@ -26,7 +26,22 @@ const {
   getDealCustomFields,
   createContact,
   createDeal,
+  getDealById,
+  getContactById,
+  createNoteForDeal,
 } = require('./lib/sell');
+
+const {
+  listTemplatesInFolder,
+  ensurePatientFolders,
+  copyTemplateToFolder,
+  replacePlaceholdersInDoc,
+  exportDocAsPdfBuffer,
+  uploadPdfToFolder,
+  driveFolderUrl,
+  driveFileUrl,
+  docsEditUrl,
+} = require('./lib/drive_docs');
 
 const { canonicalComuna, ERROR_COMUNA } = require('./lib/comunas');
 
@@ -1166,6 +1181,424 @@ const vista_previa = {
       error: err.code || 'ERROR',
       message: err.message || String(err),
       details: err.field_id ? { field_id: err.field_id } : undefined,
+    });
+  }
+});
+
+
+// -------------------------
+// Docs generation (Drive templates -> PDFs)
+// -------------------------
+function slugifyName(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80) || 'template';
+}
+
+function getTemplateFolderId() {
+  const v = String(process.env.TEMPLATE_FOLDER_ID || process.env.DOC_TEMPLATES_FOLDER_ID || '').trim();
+  return v || null;
+}
+
+// Cache templates listing to avoid hitting Drive too often
+let TEMPLATE_CACHE = null;
+let TEMPLATE_CACHE_AT = 0;
+const TEMPLATE_TTL_MS = 5 * 60 * 1000; // 5 min
+
+async function getTemplatesFromDriveFolder(force = false, folderIdOverride = null) {
+  const folderId = String(folderIdOverride || getTemplateFolderId() || '').trim();
+  if (!folderId) return null;
+
+  const now = Date.now();
+  if (!force && TEMPLATE_CACHE && (now - TEMPLATE_CACHE_AT) < TEMPLATE_TTL_MS && TEMPLATE_CACHE.folder_id === folderId) {
+    return TEMPLATE_CACHE;
+  }
+
+  const items = await listTemplatesInFolder({ folderId });
+  const mapped = items.map(it => ({
+    id: it.id,
+    name: it.name,
+    slug: slugifyName(it.name),
+    docs_url: it.docs_url,
+    modifiedTime: it.modifiedTime,
+  }));
+
+  TEMPLATE_CACHE = { folder_id: folderId, items: mapped };
+  TEMPLATE_CACHE_AT = now;
+  return TEMPLATE_CACHE;
+}
+
+function parseDocTemplatesEnv() {
+  const raw = String(process.env.DOC_TEMPLATES_JSON || '').trim();
+  if (!raw) {
+    const err = new Error('Falta DOC_TEMPLATES_JSON (map doc_type -> template_file_id)');
+    err.code = 'MISSING_DOC_TEMPLATES_JSON';
+    throw err;
+  }
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') throw new Error('DOC_TEMPLATES_JSON no es objeto');
+    return obj;
+  } catch (e) {
+    const err = new Error(`DOC_TEMPLATES_JSON inválido: ${e.message || String(e)}`);
+    err.code = 'INVALID_DOC_TEMPLATES_JSON';
+    throw err;
+  }
+}
+
+function parseDocTemplatesEnvOptional() {
+  const raw = String(process.env.DOC_TEMPLATES_JSON || '').trim();
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return null;
+    return obj;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function isWriteEnabledForDocs() {
+  return String(process.env.ALLOW_DOCS_WRITE || process.env.ALLOW_WRITE || 'false').toLowerCase() === 'true';
+}
+
+function safeName(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim();
+}
+
+function buildPatientFolderName({ rutHuman, rutNormNoDash, firstName, lastName }) {
+  const rutPart = safeName(rutHuman || rutNormNoDash || '').replace(/\*/g, '');
+  const namePart = safeName(`${firstName || ''} ${lastName || ''}`);
+  return safeName(`${rutPart} - ${namePart}`) || `PACIENTE-${Date.now()}`;
+}
+
+function isoDateTodayLocal() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+app.get('/api/deal-context', async (req, res) => {
+  try {
+    const dealId = Number(req.query.deal_id || req.query.dealId || '');
+    if (!Number.isFinite(dealId) || dealId <= 0) {
+      return res.status(400).json({ ok: false, status: 400, error: 'INVALID_DEAL_ID', message: 'deal_id inválido' });
+    }
+
+    const deal = await getDealById(dealId);
+    const contactId = deal?.contact_id || deal?.contact?.id || deal?.primary_contact_id;
+    if (!contactId) {
+      return res.status(404).json({ ok: false, status: 404, error: 'MISSING_CONTACT', message: 'Deal no tiene contact_id asociado' });
+    }
+    const contact = await getContactById(contactId);
+
+    return res.status(200).json({
+      ok: true,
+      status: 200,
+      deal: {
+        id: dealId,
+        name: deal?.name || null,
+        pipeline_id: deal?.pipeline_id || null,
+        stage_id: deal?.stage_id || null,
+        desktop_url: deskDealUrl(dealId),
+        mobile_url: mobileDealUrl(dealId),
+      },
+      contact: {
+        id: contactId,
+        display_name: contact?.name || `${contact?.first_name || ''} ${contact?.last_name || ''}`.trim(),
+        first_name: contact?.first_name || null,
+        last_name: contact?.last_name || null,
+        email: contact?.email || null,
+        phone: contact?.phone || null,
+        mobile: contact?.mobile || null,
+        address: contact?.address || null,
+        desktop_url: deskContactUrl(contactId),
+        mobile_url: mobileContactUrl(contactId),
+      },
+    });
+  } catch (err) {
+    console.error('deal-context error', err);
+    return res.status(500).json({ ok: false, status: 500, error: err.code || 'ERROR', message: err.message || String(err) });
+  }
+});
+
+app.get('/api/docs/templates', async (req, res) => {
+  try {
+    const folderId = String(req.query.folder_id || req.query.folderId || '').trim() || null;
+    const force = String(req.query.force || '').toLowerCase() === '1' || String(req.query.force || '').toLowerCase() === 'true';
+    const data = await getTemplatesFromDriveFolder(force, folderId);
+    if (!data) {
+      return res.status(400).json({ ok: false, status: 400, error: 'MISSING_TEMPLATE_FOLDER_ID', message: 'Falta TEMPLATE_FOLDER_ID (o env DOC_TEMPLATES_FOLDER_ID), o enviar ?folder_id=' });
+    }
+    // Compute defaults from DOC_DEFAULT_TYPES (as slugs or ids)
+const requested = String(process.env.DOC_DEFAULT_TYPES || '').trim()
+  ? String(process.env.DOC_DEFAULT_TYPES).split(',').map(x => x.trim()).filter(Boolean)
+  : [];
+let default_selected_ids = [];
+if (requested.length) {
+  const byId = new Map(data.items.map(it => [it.id, it]));
+  const bySlug = new Map(data.items.map(it => [it.slug, it]));
+  for (const r of requested) {
+    const hit = byId.get(r) || bySlug.get(slugifyName(r)) || bySlug.get(r);
+    if (hit) default_selected_ids.push(hit.id);
+  }
+}
+
+return res.status(200).json({
+  ok: true,
+  status: 200,
+  folder_id: data.folder_id,
+  count: data.items.length,
+  items: data.items,
+  default_selected_ids,
+});
+  } catch (err) {
+    console.error('docs/templates error', err);
+    return res.status(500).json({ ok: false, status: 500, error: err.code || 'ERROR', message: err.message || String(err) });
+  }
+});
+
+app.post('/api/docs/generate-batch', async (req, res) => {
+  const dryRun = String(req.query.dry_run || req.body?.dry_run || '').toLowerCase() === '1' || String(req.query.dry_run || req.body?.dry_run || '').toLowerCase() === 'true';
+
+  if (!dryRun && !isWriteEnabledForDocs()) {
+    return res.status(403).json({
+      ok: false,
+      status: 403,
+      error: 'WRITE_DISABLED',
+      message: 'Generación deshabilitada (ALLOW_DOCS_WRITE/ALLOW_WRITE != true).',
+    });
+  }
+
+  try {
+    const dealId = Number(req.body?.deal_id || req.body?.dealId || '');
+    if (!Number.isFinite(dealId) || dealId <= 0) {
+      return res.status(400).json({ ok: false, status: 400, error: 'INVALID_DEAL_ID', message: 'deal_id inválido' });
+    }
+
+// Templates selection priority:
+// 1) req.body.templates = [{file_id, name}] (best for "folder mode" UI)
+// 2) req.body.template_file_ids = ["1abc...", ...]
+// 3) req.body.doc_types + DOC_TEMPLATES_JSON mapping (legacy mode)
+// 4) TEMPLATE_FOLDER_ID + (DOC_DEFAULT_TYPES as slugs) else all templates in folder
+const templatesFromEnv = parseDocTemplatesEnvOptional();
+const templateFolderId = getTemplateFolderId();
+
+const templatesPayload = Array.isArray(req.body?.templates) ? req.body.templates : null;
+const templateFileIdsPayload = Array.isArray(req.body?.template_file_ids) ? req.body.template_file_ids : null;
+
+let jobs = []; // { label, template_file_id }
+
+if (templatesPayload && templatesPayload.length) {
+  jobs = templatesPayload
+    .map(t => ({ label: safeName(t.name || t.label || ''), template_file_id: String(t.file_id || t.id || '').trim() }))
+    .filter(x => x.template_file_id);
+} else if (templateFileIdsPayload && templateFileIdsPayload.length) {
+  jobs = templateFileIdsPayload
+    .map(id => ({ label: null, template_file_id: String(id).trim() }))
+    .filter(x => x.template_file_id);
+} else if (templatesFromEnv) {
+  const docTypes = Array.isArray(req.body?.doc_types) && req.body.doc_types.length
+    ? req.body.doc_types.map(String)
+    : (String(process.env.DOC_DEFAULT_TYPES || '').trim()
+        ? String(process.env.DOC_DEFAULT_TYPES).split(',').map(x => x.trim()).filter(Boolean)
+        : Object.keys(templatesFromEnv));
+
+  for (const k of docTypes) {
+    const templateFileId = templatesFromEnv[k];
+    if (templateFileId) jobs.push({ label: k, template_file_id: String(templateFileId) });
+  }
+} else if (templateFolderId) {
+  const data = await getTemplatesFromDriveFolder(false, null);
+  const items = data?.items || [];
+  const requested = Array.isArray(req.body?.doc_types) && req.body.doc_types.length
+    ? req.body.doc_types.map(String)
+    : (String(process.env.DOC_DEFAULT_TYPES || '').trim()
+        ? String(process.env.DOC_DEFAULT_TYPES).split(',').map(x => x.trim()).filter(Boolean)
+        : []);
+
+  if (requested.length) {
+    const byId = new Map(items.map(it => [it.id, it]));
+    const bySlug = new Map(items.map(it => [it.slug, it]));
+    for (const r of requested) {
+      const hit = byId.get(r) || bySlug.get(slugifyName(r)) || bySlug.get(r);
+      if (hit) jobs.push({ label: hit.name, template_file_id: hit.id });
+    }
+  } else {
+    // default: all templates in folder
+    jobs = items.map(it => ({ label: it.name, template_file_id: it.id }));
+  }
+}
+
+if (!jobs.length) {
+  return res.status(400).json({
+    ok: false,
+    status: 400,
+    error: 'MISSING_TEMPLATES',
+    message: 'No hay templates seleccionados. Configura TEMPLATE_FOLDER_ID o DOC_TEMPLATES_JSON, o envía templates/template_file_ids en el request.',
+  });
+}
+
+    // 1) Fetch deal + contact
+    const deal = await getDealById(dealId);
+    const contactId = deal?.contact_id || deal?.contact?.id || deal?.primary_contact_id;
+    if (!contactId) {
+      return res.status(404).json({ ok: false, status: 404, error: 'MISSING_CONTACT', message: 'Deal no tiene contact_id asociado' });
+    }
+    const contact = await getContactById(contactId);
+
+    // 2) Resolve custom field names (by ID) to read consistent values
+    const cCat = await getContactCatalog();
+    const FN_RUT_NORM = mustFieldNameById(cCat, 6265931); // RUT_normalizado
+    const FN_RUT_HUMAN = mustFieldNameById(cCat, 5883525); // RUT o ID
+    const FN_DOB = mustFieldNameById(cCat, 5863844); // Fecha Nacimiento
+    const FN_DOB_1 = mustFieldNameById(cCat, 6236073); // Fecha Nacimiento#1
+    const FN_PREV_LIST = mustFieldNameById(cCat, 6373567); // Previsión (list)
+    const FN_PREV_STR = mustFieldNameById(cCat, 5853892); // Previsión##
+
+    const ccf = contact?.custom_fields || {};
+    const rutNormNoDash = ccf[FN_RUT_NORM] || null; // e.g. 16927228k
+    const rutHuman = ccf[FN_RUT_HUMAN] || (rutNormNoDash ? formatRutHumanFromNoDashLower(String(rutNormNoDash).toLowerCase()) : null);
+    const dob = ccf[FN_DOB] || ccf[FN_DOB_1] || null;
+    const prevision = ccf[FN_PREV_LIST] || ccf[FN_PREV_STR] || null;
+
+    const folderName = buildPatientFolderName({
+      rutHuman,
+      rutNormNoDash,
+      firstName: contact?.first_name,
+      lastName: contact?.last_name,
+    });
+
+    // 3) Ensure patient folder
+    const driveInfo = await ensurePatientFolders({ folderName });
+
+    const placeholdersBase = {
+      RUT: rutHuman || '',
+      RUT_NORMALIZADO: rutNormNoDash || '',
+      NOMBRES: contact?.first_name || '',
+      APELLIDOS: contact?.last_name || '',
+      NOMBRE: contact?.first_name || '',
+      APELLIDO: contact?.last_name || '',
+      RUT_O_ID: rutHuman || '',
+      TELEFONO: contact?.phone || '',
+      NOMBRE_COMPLETO: safeName(`${contact?.first_name || ''} ${contact?.last_name || ''}`),
+      FECHA_NACIMIENTO: dob || '',
+      EMAIL: contact?.email || '',
+      TELEFONO1: contact?.phone || '',
+      TELEFONO2: contact?.mobile || contact?.phone || '',
+      DIRECCION: (typeof contact?.address === 'string' ? contact.address : (contact?.address?.line1 || contact?.address?.line_1 || contact?.address?.line || '')),
+      
+      COMUNA: contact?.address?.city || '',
+      PREVISION: prevision || '',
+      DEAL_ID: String(dealId),
+      CONTACT_ID: String(contactId),
+      DEAL_NAME: deal?.name || '',
+      DEAL_URL: deskDealUrl(dealId),
+      CONTACT_URL: deskContactUrl(contactId),
+      FECHA_HOY: isoDateTodayLocal(),
+    };
+
+    const results = [];
+    for (const job of jobs) {
+      const docType = safeName(job.label || job.doc_type || slugifyName(job.template_file_id));
+      const templateFileId = String(job.template_file_id || '').trim();
+      if (!templateFileId) {
+        results.push({ doc_type: docType, status: 'error', error: 'Missing template_file_id' });
+        continue;
+      }
+
+      const copyName = safeName(`${docType} - ${folderName} - ${isoDateTodayLocal()}`);
+
+      if (dryRun) {
+        results.push({
+          doc_type: docType,
+          status: 'dry_run',
+          template_file_id: templateFileId,
+          would_copy_name: copyName,
+          would_save_in: driveInfo.docs_folder_id,
+          would_export_pdf_to: driveInfo.pdf_folder_id,
+        });
+        continue;
+      }
+
+      // 4) Copy template -> Docs folder
+      const copied = await copyTemplateToFolder({
+        templateFileId,
+        newName: copyName,
+        parentFolderId: driveInfo.docs_folder_id,
+      });
+
+      // 5) Replace placeholders
+      await replacePlaceholdersInDoc({ documentId: copied.id, placeholders: placeholdersBase });
+
+      // 6) Export PDF + upload
+      const pdfBuffer = await exportDocAsPdfBuffer({ fileId: copied.id });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const pdfName = safeName(`${rutHuman || rutNormNoDash || 'PACIENTE'}_${docType}_${stamp}.pdf`);
+
+      const pdf = await uploadPdfToFolder({
+        pdfBuffer,
+        pdfName,
+        parentFolderId: driveInfo.pdf_folder_id,
+      });
+
+      results.push({
+        doc_type: docType,
+        status: 'done',
+        template_file_id: templateFileId,
+        doc_file_id: copied.id,
+        doc_name: copied.name,
+        doc_url: docsEditUrl(copied.id),
+        doc_view_url: driveFileUrl(copied.id),
+        pdf_file_id: pdf.id,
+        pdf_url: driveFileUrl(pdf.id),
+        pdf_name: pdfName,
+      });
+    }
+
+    // 7) Note in Sell (optional)
+    const shouldNote = String(req.body?.create_note ?? 'true').toLowerCase() !== 'false';
+    let note = null;
+    if (!dryRun && shouldNote) {
+      const okPdfs = results.filter(r => r.status === 'done' && r.pdf_url);
+      const lines = [
+        `📄 Documentos generados desde Portal`,
+        `Carpeta Drive: ${driveInfo.folder_url}`,
+        ...okPdfs.map(r => `• ${r.doc_type}: ${r.pdf_url}`),
+      ];
+      try {
+        note = await createNoteForDeal(dealId, lines.join('\n'));
+      } catch (e) {
+        note = { error: e.code || 'NOTE_ERROR', message: e.message || String(e) };
+      }
+    }
+
+    return res.status(200).json({
+      ok: true,
+      status: 200,
+      dry_run: dryRun,
+      deal_id: dealId,
+      contact_id: contactId,
+      patient_folder_id: driveInfo.folder_id,
+      patient_folder_url: driveInfo.folder_url,
+      folder: {
+        name: folderName,
+        id: driveInfo.folder_id,
+        url: driveInfo.folder_url,
+        pdf_folder_id: driveInfo.pdf_folder_id,
+        docs_folder_id: driveInfo.docs_folder_id,
+      },
+      results,
+      note,
+    });
+  } catch (err) {
+    console.error('docs/generate-batch error', err);
+    return res.status(500).json({
+      ok: false,
+      status: 500,
+      error: err.code || 'ERROR',
+      message: err.message || String(err),
     });
   }
 });

@@ -18,3 +18,11 @@
 
 3) Create deal (when ALLOW_WRITE=true):
    POST /api/create-deal
+
+
+## Templates dinámicos (recomendado)
+
+- Configura `TEMPLATE_FOLDER_ID` con la carpeta de Drive donde están las plantillas (Google Docs).
+- El portal listará automáticamente los templates desde `/api/docs/templates`.
+- Para agregar un nuevo template: solo cópialo a esa carpeta en Drive. No necesitas tocar Render.
+

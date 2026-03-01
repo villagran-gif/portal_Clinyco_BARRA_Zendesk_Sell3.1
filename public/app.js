@@ -708,6 +708,202 @@ const pipelineIdEl = $('pipelineId');
 const statusEl = $('status');
 const outEl = $('out');
 
+// Docs generation UI (from search result)
+const btnCreateDocs = $('btnCreateDocs');
+const docsDryRunEl = $('docsDryRun');
+const docsStatusEl = $('docs_status');
+const docsOutEl = $('docs_out');
+const docsLinksEl = $('docs_links');
+
+// Templates UI
+const docsTemplatesEl = $('docsTemplates');
+const btnReloadTemplates = $('btnReloadTemplates');
+const btnSelectAllTemplates = $('btnSelectAllTemplates');
+const btnSelectNoneTemplates = $('btnSelectNoneTemplates');
+const docsTemplatesSearchEl = $('docsTemplatesSearch');
+const btnSelectFilteredTemplates = $('btnSelectFilteredTemplates');
+const btnDeselectFilteredTemplates = $('btnDeselectFilteredTemplates');
+const docsTemplatesCountEl = $('docsTemplatesCount');
+
+let __selectedDealId = null;
+let __lastSearchJson = null;
+
+function updateDocsButton() {
+  const ok = __lastSearchJson && __lastSearchJson.ok === true;
+  const dealId = __lastSearchJson?.deal?.id;
+  __selectedDealId = dealId || null;
+  btnCreateDocs.disabled = !(ok && __selectedDealId);
+}
+
+let __templatesAll = [];
+let __templatesFiltered = [];
+let __selectedTemplateIds = new Set();
+
+function readSavedTemplateSelection() {
+  try {
+    const raw = localStorage.getItem('docs.templateSelection');
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function saveTemplateSelection(ids) {
+  try {
+    localStorage.setItem('docs.templateSelection', JSON.stringify(ids || []));
+  } catch (_e) {}
+}
+
+function persistSelectedSet() {
+  saveTemplateSelection(Array.from(__selectedTemplateIds));
+}
+
+function initSelectedSet(defaultSelectedIds = []) {
+  // Default: NONE selected. (Safer UX)
+  __selectedTemplateIds = new Set();
+}
+
+function updateTemplatesCount() {
+  if (!docsTemplatesCountEl) return;
+  const total = __templatesAll.length;
+  const shown = __templatesFiltered.length;
+  const selected = __selectedTemplateIds.size;
+  docsTemplatesCountEl.textContent = total
+    ? `Mostrando ${shown} de ${total} · Seleccionadas: ${selected}`
+    : '';
+}
+
+function renderTemplates(list) {
+  __templatesFiltered = list || [];
+  if (!docsTemplatesEl) return;
+
+  docsTemplatesEl.innerHTML = __templatesFiltered.map((t) => {
+    const checked = __selectedTemplateIds.has(t.id) ? 'checked' : '';
+    const sub = t.modifiedTime ? new Date(t.modifiedTime).toLocaleString() : '';
+    return `
+      <label class="templates-item">
+        <input type="checkbox" data-template-id="${escapeHtml(t.id)}" ${checked} />
+        <span class="meta">
+          <span class="name">${escapeHtml(t.name || t.slug || t.id)}</span>
+          <span class="sub">${escapeHtml(sub)} · ${escapeHtml(t.docs_url || '')}</span>
+        </span>
+      </label>
+    `;
+  }).join('');
+
+  // Incremental persist on change (doesn't lose selection outside filter)
+  docsTemplatesEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const id = cb.getAttribute('data-template-id');
+      if (!id) return;
+      if (cb.checked) __selectedTemplateIds.add(id);
+      else __selectedTemplateIds.delete(id);
+      persistSelectedSet();
+      updateTemplatesCount();
+    });
+  });
+
+  updateTemplatesCount();
+}
+
+function applyTemplateFilter() {
+  const q = (docsTemplatesSearchEl?.value || '').trim().toLowerCase();
+  if (!q) {
+    renderTemplates(__templatesAll);
+    return;
+  }
+  const filtered = __templatesAll.filter((t) => {
+    const hay = `${t.name || ''} ${t.slug || ''} ${t.id || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+  renderTemplates(filtered);
+}
+
+async function loadTemplates(force = false) {
+  if (!docsTemplatesEl) return;
+
+  try {
+    setStatus(docsStatusEl, 'Cargando templates...', 'info');
+    const url = force ? '/api/docs/templates?force=1' : '/api/docs/templates';
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!res.ok || !json.ok) {
+      setStatus(docsStatusEl, json.message || 'No se pudieron cargar templates', 'error');
+      docsTemplatesEl.innerHTML = '';
+      __templatesAll = [];
+      __templatesFiltered = [];
+      updateTemplatesCount();
+      return;
+    }
+
+    __templatesAll = json.items || [];
+    initSelectedSet(json.default_selected_ids || []);
+    applyTemplateFilter(); // renders
+    setStatus(docsStatusEl, `Templates cargados: ${json.count}`, 'ok');
+  } catch (err) {
+    setStatus(docsStatusEl, err.message || String(err), 'error');
+  }
+}
+
+// Buttons
+if (btnReloadTemplates) btnReloadTemplates.addEventListener('click', () => loadTemplates(true));
+
+if (btnSelectAllTemplates) btnSelectAllTemplates.addEventListener('click', () => {
+  __selectedTemplateIds = new Set(__templatesAll.map(t => t.id));
+  persistSelectedSet();
+  applyTemplateFilter();
+});
+
+if (btnSelectNoneTemplates) btnSelectNoneTemplates.addEventListener('click', () => {
+  __selectedTemplateIds = new Set();
+  persistSelectedSet();
+  applyTemplateFilter();
+});
+
+if (btnSelectFilteredTemplates) btnSelectFilteredTemplates.addEventListener('click', () => {
+  for (const t of __templatesFiltered) __selectedTemplateIds.add(t.id);
+  persistSelectedSet();
+  applyTemplateFilter();
+});
+
+if (btnDeselectFilteredTemplates) btnDeselectFilteredTemplates.addEventListener('click', () => {
+  for (const t of __templatesFiltered) __selectedTemplateIds.delete(t.id);
+  persistSelectedSet();
+  applyTemplateFilter();
+});
+
+if (docsTemplatesSearchEl) docsTemplatesSearchEl.addEventListener('input', applyTemplateFilter);
+
+// Load templates on page load
+loadTemplates(false);
+
+function renderDocsLinks(json) {
+  if (!docsLinksEl) return;
+  if (!json || !json.ok) {
+    docsLinksEl.innerHTML = '';
+    return;
+  }
+
+  const folderUrl = json.patient_folder_url || json.patient_folder_url || '';
+  const header = folderUrl
+    ? `<div class="docs-links-head"><a href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener">📁 Abrir carpeta del paciente</a></div>`
+    : '';
+
+  const results = Array.isArray(json.results) ? json.results : [];
+  const items = results.map((r) => {
+    const name = escapeHtml(r.doc_name || r.pdf_name || r.doc_type || '');
+    const doc = r.doc_url ? `<a href="${escapeHtml(r.doc_url)}" target="_blank" rel="noopener">DOC</a>` : '';
+    const pdf = r.pdf_url ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener">PDF</a>` : '';
+    const links = [doc, pdf].filter(Boolean).join(' · ');
+    const status = r.status ? `<span class="tag">${escapeHtml(r.status)}</span>` : '';
+    return `<li><span class="doc-name">${name}</span> ${status} <span class="doc-links">${links}</span></li>`;
+  }).join('');
+
+  docsLinksEl.innerHTML = header + (items ? `<ul class="docs-links-list">${items}</ul>` : '<div class="muted small">Sin resultados</div>');
+}
+
 function setStatus(el, msg, kind = 'info') {
   el.textContent = msg || '';
   el.className = `status ${kind}`;
@@ -731,6 +927,9 @@ $('form').addEventListener('submit', async (e) => {
 
     const json = await res.json();
 
+    __lastSearchJson = json;
+    updateDocsButton();
+
 
     if (json.warning_banner) {
       cSummary.insertAdjacentHTML('beforeend',
@@ -746,6 +945,72 @@ $('form').addEventListener('submit', async (e) => {
     setStatus(statusEl, err.message || String(err), 'error');
   }
 });
+
+btnCreateDocs.addEventListener('click', async () => {
+  if (!__selectedDealId) return;
+
+  const dry = !!docsDryRunEl.checked;
+  setStatus(docsStatusEl, dry ? 'Preparando (dry-run)...' : 'Generando documentos...', 'info');
+  docsOutEl.textContent = '';
+  if (docsLinksEl) docsLinksEl.innerHTML = '';
+
+  try {
+    const url = dry ? '/api/docs/generate-batch?dry_run=1' : '/api/docs/generate-batch';
+    const selectedTemplates = (__templatesAll || []).filter(t => __selectedTemplateIds.has(t.id));
+
+if (docsTemplatesEl && selectedTemplates.length === 0) {
+  setStatus(docsStatusEl, 'Debes seleccionar al menos 1 template.', 'error');
+  return;
+}
+
+const res = await fetch(url, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    deal_id: __selectedDealId,
+    templates: selectedTemplates.map(t => ({ file_id: t.id, name: t.name })),
+  }),
+});
+
+const json = await res.json();
+
+    docsOutEl.textContent = JSON.stringify(json, null, 2);
+    renderDocsLinks(json);
+    if (!res.ok) setStatus(docsStatusEl, json.message || 'Error', 'error');
+    else setStatus(docsStatusEl, 'OK', 'ok');
+  } catch (err) {
+    setStatus(docsStatusEl, err.message || String(err), 'error');
+  }
+});
+
+// Deep-link support: /?deal_id=123
+(() => {
+  try {
+    const qs = new URLSearchParams(location.search);
+    const dealId = qs.get('deal_id') || qs.get('dealId');
+    if (!dealId) return;
+
+    setStatus(statusEl, `Cargando deal_id=${dealId}...`, 'info');
+    fetch(`/api/deal-context?deal_id=${encodeURIComponent(dealId)}`)
+      .then(r => r.json().then(j => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        // Emula salida similar a search-rut (solo para habilitar botón)
+        const merged = {
+          ok: ok && j.ok,
+          status: j.status,
+          error: j.error || null,
+          message: j.message || null,
+          contact: j.contact || null,
+          deal: j.deal || null,
+        };
+        __lastSearchJson = merged;
+        updateDocsButton();
+        outEl.textContent = JSON.stringify(j, null, 2);
+        setStatus(statusEl, ok ? 'OK' : (j.message || 'Error'), ok ? 'ok' : 'error');
+      })
+      .catch(err => setStatus(statusEl, err.message || String(err), 'error'));
+  } catch (_e) {}
+})();
 
 // -------------------------
 // IA BOX + Create Contact

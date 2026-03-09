@@ -283,6 +283,20 @@
         </form>
 
         <section id="status" class="status"></section>
+
+        <div class="row" style="gap:10px; align-items:center; margin-top:10px;">
+          <button id="btnCreateDocs" type="button" disabled>CREAR DOCUMENTOS</button>
+          <label class="muted small" style="display:flex; gap:6px; align-items:center;">
+            <input id="docsDryRun" type="checkbox" /> Dry-run
+          </label>
+          <span id="docsPick" class="muted small"></span>
+        </div>
+
+        <details id="docsDetails" class="details" style="margin-top:10px;" hidden>
+          <summary>Resultado CREAR DOCUMENTOS (JSON)</summary>
+          <pre id="docsOut" class="out"></pre>
+        </details>
+
         <details class="details" open>
           <summary>Resultado (JSON)</summary>
           <pre id="out" class="out"></pre>
